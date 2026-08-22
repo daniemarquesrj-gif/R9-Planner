@@ -17,6 +17,9 @@ import {
   Layers,
   Award,
   AlertCircle,
+  Users,
+  Shield,
+  ShieldCheck,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import { MONTH_NAMES_PT } from '../utils/dateUtils.ts';
@@ -58,6 +61,9 @@ interface LeftSidebarProps {
   // Aba Ativa
   activeTab: SidebarTab;
   onSelectTab: (tab: SidebarTab) => void;
+  // Gestão de Equipe (Exclusivo Administrador)
+  activeView?: 'planner' | 'team_management';
+  onOpenTeamManagement?: () => void;
 }
 
 export default function LeftSidebar({
@@ -82,6 +88,8 @@ export default function LeftSidebar({
   onToggleCollapse,
   activeTab,
   onSelectTab,
+  activeView = 'planner',
+  onOpenTeamManagement,
 }: LeftSidebarProps) {
   // Estado interno para busca na fila (Admin)
   const [searchTerm, setSearchTerm] = useState('');
@@ -253,6 +261,24 @@ export default function LeftSidebar({
                 {overdueTasks.length > 0 && (
                   <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
                 )}
+              </button>
+
+              {/* Botão Colapsado: Gerenciar Equipe (Exclusivo Admin) */}
+              <button
+                id="collapsed-team-management-button"
+                type="button"
+                onClick={() => {
+                  onOpenTeamManagement?.();
+                  onToggleCollapse();
+                }}
+                className={`p-2 rounded-lg relative transition-colors cursor-pointer ${
+                  activeView === 'team_management'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'text-zinc-400 hover:text-blue-700 hover:bg-blue-50'
+                }`}
+                title="Gerenciar Equipe & Permissões (Supabase)"
+              >
+                <Users className="w-4 h-4" />
               </button>
             </div>
           ) : (
@@ -561,6 +587,40 @@ export default function LeftSidebar({
                 })}
               </div>
             </div>
+
+            {/* Seção Exclusiva de Administração (Apenas para Administrador) */}
+            {isAdmin && (
+              <div className="pt-2 border-t border-zinc-100 space-y-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 px-1 block">
+                  Administração
+                </span>
+                <button
+                  id="admin-manage-team-button"
+                  type="button"
+                  onClick={onOpenTeamManagement}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    activeView === 'team_management'
+                      ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                      : 'bg-blue-50/70 text-blue-700 hover:bg-blue-100/80 border border-blue-200/80'
+                  }`}
+                  title="Gerenciar usuários e permissões da equipe no Supabase"
+                >
+                  <div className="flex items-center gap-2">
+                    <Users className={`w-4 h-4 ${activeView === 'team_management' ? 'text-white' : 'text-blue-600'}`} />
+                    <span>Gerenciar Equipe</span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeView === 'team_management'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    perfis
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1094,20 +1154,38 @@ export default function LeftSidebar({
 
       {/* 3. RODAPÉ DA BARRA LATERAL: PERFIL DO USUÁRIO */}
       <div className="p-3 border-t border-zinc-200/70 bg-zinc-50/60 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-2xs ${currentUser.avatarColor}`}
-          >
-            {currentUser.initials}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-2xs ${currentUser.avatarColor}`}
+            >
+              {currentUser.initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-zinc-900 truncate leading-tight">
+                {currentUser.name}
+              </p>
+              <span className="text-[10px] text-zinc-400 truncate block">
+                {isAdmin ? '🛡️ Administrador' : '👤 Usuário Comum'}
+              </span>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-zinc-900 truncate leading-tight">
-              {currentUser.name}
-            </p>
-            <span className="text-[10px] text-zinc-400 truncate block">
-              {isAdmin ? '🛡️ Administrador' : '👤 Usuário Comum'}
-            </span>
-          </div>
+
+          {isAdmin && (
+            <button
+              id="footer-manage-team-button"
+              type="button"
+              onClick={onOpenTeamManagement}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                activeView === 'team_management'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-400 hover:text-blue-700 hover:bg-zinc-200/70'
+              }`}
+              title="Gerenciar Equipe (perfis)"
+            >
+              <Users className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

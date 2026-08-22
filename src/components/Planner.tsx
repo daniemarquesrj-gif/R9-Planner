@@ -27,6 +27,7 @@ import {
   getNextRecurrenceDate,
 } from '../utils/dateUtils.ts';
 import { taskService, mapDbRowToTask } from '../services/taskService.ts';
+import { userService, UserProfile } from '../services/userService.ts';
 import { supabase } from '../supabase.js';
 import WeeklyView from './WeeklyView.tsx';
 import MonthlyView from './MonthlyView.tsx';
@@ -34,6 +35,8 @@ import TaskDetailModal from './TaskDetailModal.tsx';
 import NewTaskModal from './NewTaskModal.tsx';
 import TaskCompletionModal from './TaskCompletionModal.tsx';
 import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
+import TeamManagementView from './TeamManagementView.tsx';
+import { Users } from 'lucide-react';
 
 interface PlannerProps {
   user?: { email?: string };
@@ -43,13 +46,45 @@ interface PlannerProps {
 export default function Planner({ user, onLogout }: PlannerProps) {
   // Estado das Tarefas e Membros
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
-  const [teamMembers] = useState<TeamMember[]>(TEAM_MEMBERS);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(TEAM_MEMBERS);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
 
   // RBAC: Perfil do usuário atual e Alternador de Papel (para teste rápido)
   const [userRole, setUserRole] = useState<UserRole>('admin');
+
+  // Tela Ativa: 'planner' (Calendário Semana/Mês) ou 'team_management' (Gerenciamento de Equipe / perfis)
+  const [activeView, setActiveView] = useState<'planner' | 'team_management'>('planner');
+
+  // Sincronizar membros da equipe com a tabela perfis do Supabase
+  const handleProfilesUpdated = useCallback((profiles: UserProfile[]) => {
+    if (!profiles || profiles.length === 0) return;
+    const mappedMembers: TeamMember[] = profiles.map((p) => ({
+      id: p.id,
+      name: p.nome,
+      email: p.email,
+      role: p.funcao === 'admin' ? 'admin' : 'member',
+      avatarColor: p.avatarColor || 'bg-blue-600 text-white',
+      initials: p.initials || p.nome.substring(0, 2).toUpperCase(),
+    }));
+    setTeamMembers(mappedMembers);
+  }, []);
+
+  // Carregar perfis do Supabase na inicialização
+  useEffect(() => {
+    async function loadProfiles() {
+      try {
+        const { data } = await userService.fetchProfiles();
+        if (data && data.length > 0) {
+          handleProfilesUpdated(data);
+        }
+      } catch (err) {
+        console.warn('Carregamento inicial de perfis:', err);
+      }
+    }
+    loadProfiles();
+  }, [handleProfilesUpdated]);
 
   const currentUser: TeamMember = useMemo(() => {
     return (
@@ -493,78 +528,116 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           </div>
         </div>
 
-        {/* Centro: Seletor de Visão (Semana / Mês) + Navegação de Período */}
+        {/* Centro: Seletor de Visão (Semana / Mês) + Navegação de Período OU Modo Gestão */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Seletor Semana / Mês */}
-          <div className="bg-zinc-100/90 p-0.5 rounded-lg flex items-center border border-zinc-200/60">
-            <button
-              id="view-mode-week-button"
-              type="button"
-              onClick={() => setViewMode('week')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
-                viewMode === 'week'
-                  ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Semana</span>
-            </button>
+          {activeView === 'planner' ? (
+            <>
+              {/* Seletor Semana / Mês */}
+              <div className="bg-zinc-100/90 p-0.5 rounded-lg flex items-center border border-zinc-200/60">
+                <button
+                  id="view-mode-week-button"
+                  type="button"
+                  onClick={() => setViewMode('week')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                    viewMode === 'week'
+                      ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Semana</span>
+                </button>
 
-            <button
-              id="view-mode-month-button"
-              type="button"
-              onClick={() => setViewMode('month')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
-                viewMode === 'month'
-                  ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Mês</span>
-            </button>
-          </div>
+                <button
+                  id="view-mode-month-button"
+                  type="button"
+                  onClick={() => setViewMode('month')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                    viewMode === 'month'
+                      ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Mês</span>
+                </button>
+              </div>
 
-          {/* Navegação de Data */}
-          <div className="flex items-center gap-1 bg-zinc-50 border border-zinc-200/70 p-0.5 rounded-lg">
-            <button
-              type="button"
-              onClick={handlePrev}
-              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
-              title="Período anterior"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+              {/* Navegação de Data */}
+              <div className="flex items-center gap-1 bg-zinc-50 border border-zinc-200/70 p-0.5 rounded-lg">
+                <button
+                  type="button"
+                  onClick={handlePrev}
+                  className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
+                  title="Período anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
 
-            <button
-              type="button"
-              onClick={handleToday}
-              className="px-2 py-0.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-100 border border-zinc-200/60 shadow-2xs rounded-md transition-colors cursor-pointer"
-            >
-              Hoje
-            </button>
+                <button
+                  type="button"
+                  onClick={handleToday}
+                  className="px-2 py-0.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-100 border border-zinc-200/60 shadow-2xs rounded-md transition-colors cursor-pointer"
+                >
+                  Hoje
+                </button>
 
-            <button
-              type="button"
-              onClick={handleNext}
-              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
-              title="Próximo período"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
+                  title="Próximo período"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
 
-            {/* Texto do Intervalo formatado */}
-            <span className="text-xs font-semibold text-zinc-800 ml-1.5 hidden md:inline-block pr-1.5">
-              {viewMode === 'week'
-                ? formatWeekInterval(weekDates)
-                : `${MONTH_NAMES_PT[currentReferenceDate.getMonth()]} de ${currentReferenceDate.getFullYear()}`}
-            </span>
-          </div>
+                {/* Texto do Intervalo formatado */}
+                <span className="text-xs font-semibold text-zinc-800 ml-1.5 hidden md:inline-block pr-1.5">
+                  {viewMode === 'week'
+                    ? formatWeekInterval(weekDates)
+                    : `${MONTH_NAMES_PT[currentReferenceDate.getMonth()]} de ${currentReferenceDate.getFullYear()}`}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveView('planner')}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100/80 border border-blue-200/70 rounded-lg transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Voltar ao Planner</span>
+              </button>
+              <span className="text-xs font-semibold text-zinc-700 hidden sm:inline">
+                Gerenciamento de Equipe & Permissões
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Direita: Status Supabase, Perfil RBAC e Logout */}
+        {/* Direita: Status Supabase, Atalho Equipe (Admin), Perfil RBAC e Logout */}
         <div className="flex items-center gap-2">
+          {/* Botão de Alternar Gerenciamento de Equipe (Exclusivo Administrador) */}
+          {userRole === 'admin' && (
+            <button
+              id="header-team-management-btn"
+              type="button"
+              onClick={() =>
+                setActiveView((prev) => (prev === 'team_management' ? 'planner' : 'team_management'))
+              }
+              className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                activeView === 'team_management'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
+                  : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
+              }`}
+              title="Gerenciar usuários e permissões da equipe (tabela perfis)"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>{activeView === 'team_management' ? 'Ver Calendário' : 'Gerenciar Equipe'}</span>
+            </button>
+          )}
+
           {/* Indicador de Conexão Supabase / Botão de Sincronizar */}
           <button
             id="supabase-sync-status-button"
@@ -608,7 +681,13 @@ export default function Planner({ user, onLogout }: PlannerProps) {
               id="rbac-role-toggle-button"
               type="button"
               onClick={() =>
-                setUserRole((prev) => (prev === 'admin' ? 'member' : 'admin'))
+                setUserRole((prev) => {
+                  const nextRole = prev === 'admin' ? 'member' : 'admin';
+                  if (nextRole === 'member') {
+                    setActiveView('planner');
+                  }
+                  return nextRole;
+                })
               }
               className={`text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
                 userRole === 'admin'
@@ -645,9 +724,15 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           todayISO={todayISO}
           todayDate={todayDate}
           currentFilter={navFilter}
-          onSelectFilter={(f) => setNavFilter(f)}
+          onSelectFilter={(f) => {
+            setActiveView('planner');
+            setNavFilter(f);
+          }}
           selectedBucket={selectedBucket}
-          onSelectBucket={(b) => setSelectedBucket(b)}
+          onSelectBucket={(b) => {
+            setActiveView('planner');
+            setSelectedBucket(b);
+          }}
           buckets={allBuckets}
           counts={navCounts}
           onTaskClick={handleTaskClick}
@@ -661,12 +746,23 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           isCollapsed={isLeftSidebarCollapsed}
           onToggleCollapse={() => setIsLeftSidebarCollapsed((prev) => !prev)}
           activeTab={sidebarTab}
-          onSelectTab={(tab) => setSidebarTab(tab)}
+          onSelectTab={(tab) => {
+            setActiveView('planner');
+            setSidebarTab(tab);
+          }}
+          activeView={activeView}
+          onOpenTeamManagement={() => setActiveView('team_management')}
         />
 
-        {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) - Amplo e Centralizado */}
+        {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) OU Tela de Gerenciamento de Equipe */}
         <main className="flex-1 min-h-0 overflow-hidden relative bg-[#f8f9fa]/80 flex flex-col">
-          {isLoadingTasks ? (
+          {activeView === 'team_management' && userRole === 'admin' ? (
+            <TeamManagementView
+              currentUserEmail={user?.email}
+              onBackToPlanner={() => setActiveView('planner')}
+              onProfileUpdated={handleProfilesUpdated}
+            />
+          ) : isLoadingTasks ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-zinc-500">
               <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 mb-3 shadow-xs">
                 <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
