@@ -15,10 +15,6 @@ import {
 } from 'lucide-react';
 import { Task, TeamMember, UserRole, CustomFieldValue } from '../types.ts';
 import {
-  TEAM_MEMBERS,
-  INITIAL_TASKS,
-} from '../data/mockData.ts';
-import {
   getWeekDates,
   formatWeekInterval,
   getMonthGrid,
@@ -39,19 +35,24 @@ import TeamManagementView from './TeamManagementView.tsx';
 import { Users } from 'lucide-react';
 
 interface PlannerProps {
-  user?: { email?: string };
+  user?: {
+    id?: string;
+    email?: string;
+    user_metadata?: { full_name?: string; nome?: string };
+    [key: string]: any;
+  };
   onLogout?: () => void;
 }
 
 export default function Planner({ user, onLogout }: PlannerProps) {
-  // Estado das Tarefas e Membros
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(TEAM_MEMBERS);
+  // Estado das Tarefas e Membros reais do Supabase
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
 
-  // RBAC: Perfil do usuário atual e Alternador de Papel (para teste rápido)
+  // RBAC: Perfil do usuário atual
   const [userRole, setUserRole] = useState<UserRole>('admin');
 
   // Tela Ativa: 'planner' (Calendário Semana/Mês) ou 'team_management' (Gerenciamento de Equipe / perfis)
@@ -59,7 +60,10 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
   // Sincronizar membros da equipe com a tabela perfis do Supabase
   const handleProfilesUpdated = useCallback((profiles: UserProfile[]) => {
-    if (!profiles || profiles.length === 0) return;
+    if (!profiles || profiles.length === 0) {
+      setTeamMembers([]);
+      return;
+    }
     const mappedMembers: TeamMember[] = profiles.map((p) => ({
       id: p.id,
       name: p.nome,
@@ -69,37 +73,62 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       initials: p.initials || p.nome.substring(0, 2).toUpperCase(),
     }));
     setTeamMembers(mappedMembers);
-  }, []);
+
+    // Se o usuário logado estiver na lista de perfis, sincroniza seu papel real
+    if (user?.id || user?.email) {
+      const match = mappedMembers.find(
+        (m) =>
+          (user.id && m.id === user.id) ||
+          (user.email && m.email.toLowerCase() === user.email.toLowerCase())
+      );
+      if (match) {
+        setUserRole(match.role);
+      }
+    }
+  }, [user]);
 
   // Carregar perfis do Supabase na inicialização
   useEffect(() => {
     async function loadProfiles() {
       try {
         const { data } = await userService.fetchProfiles();
-        if (data && data.length > 0) {
+        if (data) {
           handleProfilesUpdated(data);
         }
-      } catch (err) {
-        console.warn('Carregamento inicial de perfis:', err);
+      } catch {
+        // Falha silenciosa sem poluir o console
       }
     }
     loadProfiles();
   }, [handleProfilesUpdated]);
 
   const currentUser: TeamMember = useMemo(() => {
-    return (
-      teamMembers.find((m) => m.email === user?.email) || {
-        id: 'user-current',
-        name: user?.email ? user.email.split('@')[0] : 'Daniel Marques',
-        email: user?.email || 'danie.marques.rj@gmail.com',
-        role: userRole,
-        avatarColor: 'bg-blue-600 text-white',
-        initials: 'DM',
-      }
+    const found = teamMembers.find(
+      (m) =>
+        (user?.id && m.id === user.id) ||
+        (user?.email && m.email.toLowerCase() === user.email.toLowerCase())
     );
+
+    if (found) {
+      return found;
+    }
+
+    const fallbackName =
+      user?.user_metadata?.full_name ||
+      user?.user_metadata?.nome ||
+      (user?.email ? user.email.split('@')[0] : 'Usuário');
+
+    return {
+      id: user?.id || '',
+      name: fallbackName,
+      email: user?.email || '',
+      role: userRole,
+      avatarColor: 'bg-blue-600 text-white',
+      initials: fallbackName ? fallbackName.substring(0, 2).toUpperCase() : 'U',
+    };
   }, [user, teamMembers, userRole]);
 
-  // Carregamento Inicial (Fetch) do Supabase
+  // Carregamento Inicial (Fetch) do Supabase estritamente da tabela tarefas
   const loadTasksFromSupabase = useCallback(async (isInitial = false) => {
     if (isInitial) setIsLoadingTasks(true);
     else setIsSyncing(true);
@@ -108,26 +137,12 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       const { data, error } = await taskService.fetchTasks();
 
       if (error) {
-        console.warn('Conexão ao Supabase com aviso:', error.message);
         setDbConnected(false);
       } else {
         setDbConnected(true);
-        if (data && data.length > 0) {
-          setTasks(data);
-        } else if (isInitial && (!data || data.length === 0)) {
-          // Se a tabela estiver vazia na primeira execução, tenta semear tarefas de exemplo ou mantém lista
-          try {
-            const seeded = await taskService.seedInitialTasks();
-            if (seeded && seeded.length > 0) {
-              setTasks(seeded);
-            }
-          } catch (seedErr) {
-            console.log('Mantendo tarefas padrão na inicialização:', seedErr);
-          }
-        }
+        setTasks(data || []);
       }
-    } catch (err) {
-      console.error('Erro ao buscar tarefas do Supabase:', err);
+    } catch {
       setDbConnected(false);
     } finally {
       setIsLoadingTasks(false);

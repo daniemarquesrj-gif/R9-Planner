@@ -1,6 +1,4 @@
 import { supabase } from '../supabase.js';
-import { TeamMember, UserRole } from '../types.ts';
-import { TEAM_MEMBERS } from '../data/mockData.ts';
 
 export interface UserProfile {
   id: string;
@@ -58,7 +56,7 @@ export function mapDbRowToProfile(row: any, index = 0): UserProfile {
 
 export const userService = {
   /**
-   * Busca todos os usuários da tabela 'perfis' no Supabase
+   * Busca estritamente todos os perfis reais da tabela 'perfis' no Supabase
    */
   async fetchProfiles(): Promise<{ data: UserProfile[]; error: any | null }> {
     try {
@@ -68,7 +66,6 @@ export const userService = {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.warn('Aviso ao consultar tabela perfis no Supabase:', error.message);
         return { data: [], error };
       }
 
@@ -79,89 +76,31 @@ export const userService = {
       const profiles = data.map((row, idx) => mapDbRowToProfile(row, idx));
       return { data: profiles, error: null };
     } catch (err) {
-      console.error('Falha de conexão ao buscar perfis:', err);
       return { data: [], error: err };
     }
   },
 
   /**
-   * Atualiza a função/cargo do usuário na tabela 'perfis' em tempo real
+   * Atualiza a função/cargo do usuário na tabela 'perfis' no Supabase
    */
   async updateUserRole(
     userId: string,
     newRole: 'admin' | 'membro'
   ): Promise<{ error: any | null }> {
     try {
-      // Atualiza o campo 'funcao' conforme solicitado
       const { error } = await supabase
         .from('perfis')
         .update({ funcao: newRole })
         .eq('id', userId);
 
       if (error) {
-        console.error(`Erro ao atualizar funcao do usuario ${userId}:`, error.message);
         return { error };
       }
 
       return { error: null };
     } catch (err) {
-      console.error(`Exceção ao atualizar funcao do usuario ${userId}:`, err);
       return { error: err };
     }
   },
-
-  /**
-   * Semeia perfis iniciais caso a tabela 'perfis' esteja vazia no Supabase
-   */
-  async seedInitialProfiles(): Promise<UserProfile[]> {
-    try {
-      const payloads = TEAM_MEMBERS.map((m) => ({
-        id: m.id,
-        nome: m.name,
-        email: m.email,
-        funcao: m.role === 'admin' ? 'admin' : 'membro',
-        avatar_color: m.avatarColor,
-      }));
-
-      const { data, error } = await supabase
-        .from('perfis')
-        .insert(payloads)
-        .select();
-
-      if (error) {
-        console.warn('Não foi possível semear tabela perfis:', error.message);
-        return TEAM_MEMBERS.map((m, idx) => ({
-          id: m.id,
-          nome: m.name,
-          email: m.email,
-          funcao: (m.role === 'admin' ? 'admin' : 'membro') as 'admin' | 'membro',
-          avatarColor: m.avatarColor,
-          initials: m.initials,
-        }));
-      }
-
-      if (data && data.length > 0) {
-        return data.map((row, idx) => mapDbRowToProfile(row, idx));
-      }
-
-      return TEAM_MEMBERS.map((m, idx) => ({
-        id: m.id,
-        nome: m.name,
-        email: m.email,
-        funcao: (m.role === 'admin' ? 'admin' : 'membro') as 'admin' | 'membro',
-        avatarColor: m.avatarColor,
-        initials: m.initials,
-      }));
-    } catch (err) {
-      console.error('Erro ao semear perfis:', err);
-      return TEAM_MEMBERS.map((m) => ({
-        id: m.id,
-        nome: m.name,
-        email: m.email,
-        funcao: (m.role === 'admin' ? 'admin' : 'membro') as 'admin' | 'membro',
-        avatarColor: m.avatarColor,
-        initials: m.initials,
-      }));
-    }
-  },
 };
+

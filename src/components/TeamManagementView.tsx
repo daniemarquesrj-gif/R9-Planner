@@ -50,7 +50,7 @@ export default function TeamManagementView({
     }, 4000);
   };
 
-  // Carregar perfis da tabela 'perfis'
+  // Carregar perfis estritamente da tabela 'perfis'
   const loadProfiles = useCallback(
     async (isInitial = false) => {
       if (isInitial) setIsLoading(true);
@@ -60,22 +60,16 @@ export default function TeamManagementView({
         const { data, error } = await userService.fetchProfiles();
 
         if (error) {
-          console.warn('Erro ao consultar tabela perfis:', error.message);
-          showNotification('Aviso: usando dados locais de perfis.', 'info');
+          showNotification('Erro ao carregar tabela de perfis do Supabase.', 'error');
+          setProfiles([]);
+          onProfileUpdated?.([]);
+        } else {
+          setProfiles(data || []);
+          onProfileUpdated?.(data || []);
         }
-
-        if (data && data.length > 0) {
-          setProfiles(data);
-          onProfileUpdated?.(data);
-        } else if (isInitial) {
-          // Se estiver vazio, semeia os perfis de equipe
-          const seeded = await userService.seedInitialProfiles();
-          setProfiles(seeded);
-          onProfileUpdated?.(seeded);
-        }
-      } catch (err) {
-        console.error('Erro ao carregar perfis:', err);
+      } catch {
         showNotification('Erro ao conectar ao Supabase.', 'error');
+        setProfiles([]);
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);

@@ -1,7 +1,11 @@
 import { supabase } from '../supabase.js';
-import { Task, TeamMember, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment } from '../types.ts';
+import { Task, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment } from '../types.ts';
 import { getNextRecurrenceDate } from '../utils/dateUtils.ts';
-import { INITIAL_TASKS } from '../data/mockData.ts';
+
+function isValidUUID(val?: string | null): boolean {
+  if (!val) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
 
 /**
  * Converte um registro do banco de dados Supabase (tabela 'tarefas')
@@ -52,6 +56,8 @@ export function mapDbRowToTask(row: any): Task {
       : [];
   }
 
+  const assignedToId = row.responsavel_id ?? row.assigned_to ?? row.assignedTo ?? null;
+
   return {
     id: String(row.id),
     title: row.titulo ?? row.title ?? 'Sem título',
@@ -59,7 +65,7 @@ export function mapDbRowToTask(row: any): Task {
     priority: (row.prioridade ?? row.priority ?? 'Alta') as Priority,
     recurrence: (row.recorrencia ?? row.recurrence ?? 'Nenhuma') as Recurrence,
     tags,
-    assignedTo: row.responsavel_id ?? row.assigned_to ?? row.assignedTo ?? null,
+    assignedTo: assignedToId ? String(assignedToId) : null,
     bucket: row.bucket ?? row.categoria ?? 'Operacional',
     startDate: row.data_inicio ?? row.start_date ?? row.startDate ?? undefined,
     endDate: row.data_fim ?? row.end_date ?? row.endDate ?? undefined,
@@ -89,7 +95,17 @@ export function mapTaskToDbPayload(
   if (task.priority !== undefined) payload.prioridade = task.priority;
   if (task.recurrence !== undefined) payload.recorrencia = task.recurrence;
   if (task.bucket !== undefined) payload.bucket = task.bucket;
-  if (task.assignedTo !== undefined) payload.responsavel_id = task.assignedTo || null;
+
+  if (task.assignedTo !== undefined) {
+    if (task.assignedTo && isValidUUID(task.assignedTo)) {
+      payload.responsavel_id = task.assignedTo;
+    } else if (task.assignedTo && !task.assignedTo.startsWith('user-')) {
+      payload.responsavel_id = task.assignedTo;
+    } else {
+      payload.responsavel_id = null;
+    }
+  }
+
   if (task.startDate !== undefined) payload.data_inicio = task.startDate || null;
   if (task.endDate !== undefined) payload.data_fim = task.endDate || null;
   if (task.scheduledDate !== undefined) payload.data_agendada = task.scheduledDate || null;
@@ -113,7 +129,7 @@ export function mapTaskToDbPayload(
 
 export const taskService = {
   /**
-   * Busca todas as tarefas da tabela 'tarefas' no Supabase
+   * Busca estritamente todas as tarefas reais da tabela 'tarefas' no Supabase
    */
   async fetchTasks(): Promise<{ data: Task[]; error: any | null }> {
     try {
@@ -123,7 +139,6 @@ export const taskService = {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.warn('Erro ao consultar tabela tarefas no Supabase:', error.message);
         return { data: [], error };
       }
 
@@ -134,7 +149,6 @@ export const taskService = {
       const parsedTasks = data.map(mapDbRowToTask);
       return { data: parsedTasks, error: null };
     } catch (err) {
-      console.error('Falha de rede ou conexão ao buscar tarefas:', err);
       return { data: [], error: err };
     }
   },
@@ -154,14 +168,7 @@ export const taskService = {
         .select();
 
       if (error) {
-        console.error('Erro ao inserir tarefa no Supabase:', error.message);
-        // Fallback local se a inserção falhar
-        const fallbackTask: Task = {
-          ...newTaskData,
-          id: `task-${Date.now()}`,
-          comments: [],
-        };
-        return { data: fallbackTask, error };
+        return { data: null, error };
       }
 
       if (data && data.length > 0) {
@@ -169,20 +176,9 @@ export const taskService = {
         return { data: created, error: null };
       }
 
-      const fallbackTask: Task = {
-        ...newTaskData,
-        id: `task-${Date.now()}`,
-        comments: [],
-      };
-      return { data: fallbackTask, error: null };
+      return { data: null, error: null };
     } catch (err) {
-      console.error('Exceção ao criar tarefa no Supabase:', err);
-      const fallbackTask: Task = {
-        ...newTaskData,
-        id: `task-${Date.now()}`,
-        comments: [],
-      };
-      return { data: fallbackTask, error: err };
+      return { data: null, error: err };
     }
   },
 
@@ -200,12 +196,10 @@ export const taskService = {
         .eq('id', taskId);
 
       if (error) {
-        console.error(`Erro ao atualizar data_agendada da tarefa ${taskId}:`, error.message);
         return { error };
       }
       return { error: null };
     } catch (err) {
-      console.error(`Exceção ao atualizar data_agendada da tarefa ${taskId}:`, err);
       return { error: err };
     }
   },
@@ -251,7 +245,6 @@ export const taskService = {
         .eq('id', task.id);
 
       if (error) {
-        console.error(`Erro ao atualizar status da tarefa ${task.id}:`, error.message);
         updateError = error;
       }
 
@@ -287,32 +280,8 @@ export const taskService = {
             .insert([recurrentPayload])
             .select();
 
-          if (recurrentError) {
-            console.error('Erro ao gerar nova ocorrência recorrente no Supabase:', recurrentError.message);
-            // Fallback em memória
-            nextRecurrentTask = {
-              ...task,
-              id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-              status: 'pendente',
-              scheduledDate: nextDate,
-              startDate: nextDate,
-              endDate: nextDate,
-              customFieldValues: [],
-              comments: [],
-            };
-          } else if (recurrentData && recurrentData.length > 0) {
+          if (!recurrentError && recurrentData && recurrentData.length > 0) {
             nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
-          } else {
-            nextRecurrentTask = {
-              ...task,
-              id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-              status: 'pendente',
-              scheduledDate: nextDate,
-              startDate: nextDate,
-              endDate: nextDate,
-              customFieldValues: [],
-              comments: [],
-            };
           }
         }
       }
@@ -323,7 +292,6 @@ export const taskService = {
         error: updateError,
       };
     } catch (err) {
-      console.error('Exceção ao atualizar status e recorrência:', err);
       return {
         updatedTask,
         nextRecurrentTask: null,
@@ -347,13 +315,11 @@ export const taskService = {
         .eq('id', task.id);
 
       if (error) {
-        console.error(`Erro ao atualizar dados da tarefa ${task.id}:`, error.message);
         return { data: task, error };
       }
 
       return { data: task, error: null };
     } catch (err) {
-      console.error(`Exceção ao atualizar tarefa ${task.id}:`, err);
       return { data: task, error: err };
     }
   },
@@ -369,39 +335,12 @@ export const taskService = {
         .eq('id', taskId);
 
       if (error) {
-        console.error(`Erro ao deletar tarefa ${taskId} do Supabase:`, error.message);
         return { error };
       }
       return { error: null };
     } catch (err) {
-      console.error(`Exceção ao deletar tarefa ${taskId}:`, err);
       return { error: err };
     }
   },
-
-  /**
-   * Se a tabela de tarefas estiver vazia pela primeira vez, permite semear os dados iniciais de demonstração
-   */
-  async seedInitialTasks(): Promise<Task[]> {
-    try {
-      const payloads = INITIAL_TASKS.map((t) => mapTaskToDbPayload(t));
-      const { data, error } = await supabase
-        .from('tarefas')
-        .insert(payloads)
-        .select();
-
-      if (error) {
-        console.warn('Não foi possível semear dados iniciais no Supabase:', error.message);
-        return INITIAL_TASKS;
-      }
-
-      if (data && data.length > 0) {
-        return data.map(mapDbRowToTask);
-      }
-      return INITIAL_TASKS;
-    } catch (err) {
-      console.error('Erro ao semear tarefas:', err);
-      return INITIAL_TASKS;
-    }
-  },
 };
+
