@@ -1,0 +1,6 @@
+{
+  "name": "Planner de Equipe",
+  "description": "Sistema de controle de tarefas e planner de equipe semanal e mensal com RBAC, Drag & Drop, Fila de Não Iniciadas e Chat integrado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
