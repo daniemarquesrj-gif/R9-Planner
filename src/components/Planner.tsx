@@ -53,16 +53,29 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
 
-  // RBAC: Perfil do usuário (inicializa como 'admin' por padrão para visualização e sincroniza com a tabela 'perfis' no Supabase)
-  const [userRole, setUserRole] = useState<UserRole>('admin');
-  const [isLoadingRole, setIsLoadingRole] = useState<boolean>(false);
+  // RBAC: Perfil real do usuário logado consultado na tabela 'perfis' do Supabase
+  const [realUserRole, setRealUserRole] = useState<'admin' | 'membro'>('membro');
+  // Modo de visualização para simulação e validação (Exclusivo para Administrador)
+  const [simulatedRole, setSimulatedRole] = useState<UserRole>('admin');
+  const [isLoadingRole, setIsLoadingRole] = useState<boolean>(true);
+
+  // Papel efetivo ativo no momento
+  const isRealAdmin = realUserRole === 'admin';
+  const userRole: UserRole = isRealAdmin ? simulatedRole : 'member';
 
   // Tela Ativa: 'planner' (Calendário Semana/Mês), 'team_management' (Gerenciamento de Equipe) ou 'executive_summary' (Resumo Executivo Semanal)
   const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary'>('planner');
 
-  // Ao alternar para o modo Membro, redireciona suavemente se estiver em telas administrativas
-  const handleToggleRole = (newRole: UserRole) => {
-    setUserRole(newRole);
+  // Proteção de Rota: se não for admin ativo, bloqueia telas administrativas e redireciona para o planner
+  useEffect(() => {
+    if (userRole !== 'admin' && (activeView === 'team_management' || activeView === 'executive_summary')) {
+      setActiveView('planner');
+    }
+  }, [userRole, activeView]);
+
+  // Ao alternar o modo de visualização (exclusivo para Admin), redireciona suavemente se estiver em telas administrativas
+  const handleToggleSimulatedRole = (newRole: UserRole) => {
+    setSimulatedRole(newRole);
     if (newRole === 'member' && (activeView === 'team_management' || activeView === 'executive_summary')) {
       setActiveView('planner');
     }
@@ -92,23 +105,59 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           (user.email && m.email.toLowerCase() === user.email.toLowerCase())
       );
       if (match) {
-        setUserRole(match.role);
+        const isAdm = match.role === 'admin';
+        setRealUserRole(isAdm ? 'admin' : 'membro');
         setIsLoadingRole(false);
       }
     }
   }, [user]);
 
-  // Carregar perfis do Supabase na inicialização e consultar especificamente o perfil do usuário logado
+  // Carregar perfil real do usuário logado na tabela 'perfis' e lista da equipe
   useEffect(() => {
     let isMounted = true;
 
     async function loadRoleAndProfiles() {
       setIsLoadingRole(true);
       try {
-        // 1. Busca perfil do usuário logado diretamente
-        const { data: userProfile } = await userService.fetchUserProfile(user?.id, user?.email);
-        if (isMounted && userProfile) {
-          setUserRole(userProfile.funcao === 'admin' ? 'admin' : 'member');
+        // 1. Busca direta na tabela 'perfis' pelo id do usuário logado
+        if (user?.id) {
+          const { data: userRecord } = await supabase
+            .from('perfis')
+            .select('funcao')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (isMounted && userRecord?.funcao) {
+            const rawRole = userRecord.funcao.toLowerCase();
+            const isAdm = rawRole === 'admin' || rawRole === 'administrador';
+            setRealUserRole(isAdm ? 'admin' : 'membro');
+            setSimulatedRole(isAdm ? 'admin' : 'member');
+          } else if (isMounted && user.email) {
+            // Fallback por e-mail se o ID não bater
+            const { data: byEmail } = await supabase
+              .from('perfis')
+              .select('funcao')
+              .eq('email', user.email)
+              .maybeSingle();
+            if (byEmail?.funcao) {
+              const rawRole = byEmail.funcao.toLowerCase();
+              const isAdm = rawRole === 'admin' || rawRole === 'administrador';
+              setRealUserRole(isAdm ? 'admin' : 'membro');
+              setSimulatedRole(isAdm ? 'admin' : 'member');
+            }
+          }
+        } else if (user?.email) {
+          const { data: byEmail } = await supabase
+            .from('perfis')
+            .select('funcao')
+            .eq('email', user.email)
+            .maybeSingle();
+          if (isMounted && byEmail?.funcao) {
+            const rawRole = byEmail.funcao.toLowerCase();
+            const isAdm = rawRole === 'admin' || rawRole === 'administrador';
+            setRealUserRole(isAdm ? 'admin' : 'membro');
+            setSimulatedRole(isAdm ? 'admin' : 'member');
+          }
         }
 
         // 2. Busca lista completa de perfis para a equipe
@@ -140,7 +189,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
         async () => {
           const { data: userProfile } = await userService.fetchUserProfile(user?.id, user?.email);
           if (isMounted && userProfile) {
-            setUserRole(userProfile.funcao === 'admin' ? 'admin' : 'member');
+            const isAdm = userProfile.funcao === 'admin';
+            setRealUserRole(isAdm ? 'admin' : 'membro');
           }
           const { data: allProfiles } = await userService.fetchProfiles();
           if (isMounted && allProfiles) {
@@ -777,47 +827,49 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             <RefreshCw className={`w-3 h-3 text-zinc-400 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
           </button>
 
-          {/* Seletor de Perfil RBAC Interativo no Topo (Admin / Membro) */}
-          <div
-            id="rbac-role-selector-header"
-            className="flex items-center gap-1.5 bg-zinc-100/90 border border-zinc-200/80 px-2 py-1 rounded-lg"
-            title="Seletor de perfil e alternância de visualização (Administrador / Membro)"
-          >
-            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider hidden sm:inline">
-              Perfil:
-            </span>
-            <div className="flex items-center gap-1 p-0.5 bg-zinc-200/70 rounded-md">
-              <button
-                id="header-role-admin-button"
-                type="button"
-                onClick={() => handleToggleRole('admin')}
-                className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
-                  userRole === 'admin'
-                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-                title="Visualização e controle como Administrador"
-              >
-                <span>🛡️</span>
-                <span>Admin</span>
-              </button>
+          {/* Seletor Exclusivo de Modo de Visualização para Administrador (Renderizado APENAS se funcao === 'admin' na tabela perfis) */}
+          {isRealAdmin && (
+            <div
+              id="rbac-admin-view-mode-selector"
+              className="flex items-center gap-1.5 bg-zinc-100/90 border border-zinc-200/80 px-2 py-1 rounded-lg"
+              title="Alternância de modo de visualização exclusiva do Administrador para validação e testes de tela"
+            >
+              <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider hidden sm:inline">
+                Visualizar:
+              </span>
+              <div className="flex items-center gap-1 p-0.5 bg-zinc-200/70 rounded-md">
+                <button
+                  id="header-view-admin-button"
+                  type="button"
+                  onClick={() => handleToggleSimulatedRole('admin')}
+                  className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                    simulatedRole === 'admin'
+                      ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                  title="Modo completo de Administrador"
+                >
+                  <span>🛡️</span>
+                  <span>Admin</span>
+                </button>
 
-              <button
-                id="header-role-member-button"
-                type="button"
-                onClick={() => handleToggleRole('member')}
-                className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
-                  userRole === 'member'
-                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
-                    : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-                title="Visualização como Membro da Equipe"
-              >
-                <span>👤</span>
-                <span>Membro</span>
-              </button>
+                <button
+                  id="header-view-member-button"
+                  type="button"
+                  onClick={() => handleToggleSimulatedRole('member')}
+                  className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                    simulatedRole === 'member'
+                      ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  }`}
+                  title="Modo restrito de Membro (simulação para testes)"
+                >
+                  <span>👤</span>
+                  <span>Membro</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Botão de Sair */}
           <button
@@ -897,7 +949,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             <TeamManagementView
               currentUserEmail={user?.email}
               userRole={userRole}
-              isAdmin={userRole === 'admin'}
+              isAdmin={isRealAdmin && userRole === 'admin'}
               onBackToPlanner={() => setActiveView('planner')}
               onProfileUpdated={handleProfilesUpdated}
             />
