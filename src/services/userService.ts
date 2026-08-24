@@ -56,6 +56,41 @@ export function mapDbRowToProfile(row: any, index = 0): UserProfile {
 
 export const userService = {
   /**
+   * Busca o perfil real de um usuário específico na tabela 'perfis' por ID ou Email
+   */
+  async fetchUserProfile(userId?: string, email?: string): Promise<{ data: UserProfile | null; error: any | null }> {
+    try {
+      if (!userId && !email) {
+        return { data: null, error: null };
+      }
+
+      let query = supabase.from('perfis').select('*');
+
+      if (userId && email) {
+        query = query.or(`id.eq.${userId},email.eq.${email}`);
+      } else if (userId) {
+        query = query.eq('id', userId);
+      } else if (email) {
+        query = query.eq('email', email);
+      }
+
+      const { data, error } = await query.limit(1).maybeSingle();
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      if (!data) {
+        return { data: null, error: null };
+      }
+
+      return { data: mapDbRowToProfile(data), error: null };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  },
+
+  /**
    * Busca estritamente todos os perfis reais da tabela 'perfis' no Supabase
    */
   async fetchProfiles(): Promise<{ data: UserProfile[]; error: any | null }> {
@@ -82,23 +117,31 @@ export const userService = {
 
   /**
    * Atualiza a função/cargo do usuário na tabela 'perfis' no Supabase
+   * Apenas administradores podem executar esta ação
    */
   async updateUserRole(
     userId: string,
     newRole: 'admin' | 'membro'
   ): Promise<{ error: any | null }> {
     try {
-      const { error } = await supabase
+      if (!userId) {
+        return { error: new Error('ID do usuário (UUID) não fornecido para atualização.') };
+      }
+
+      const { data, error } = await supabase
         .from('perfis')
         .update({ funcao: newRole })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select();
 
       if (error) {
+        console.error('Erro ao atualizar cargo do usuário no Supabase:', error);
         return { error };
       }
 
       return { error: null };
     } catch (err) {
+      console.error('Exceção capturada ao atualizar cargo do usuário:', err);
       return { error: err };
     }
   },

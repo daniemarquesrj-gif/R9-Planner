@@ -53,11 +53,20 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
 
-  // RBAC: Perfil do usuário atual
+  // RBAC: Perfil do usuário (inicializa como 'admin' por padrão para visualização e sincroniza com a tabela 'perfis' no Supabase)
   const [userRole, setUserRole] = useState<UserRole>('admin');
+  const [isLoadingRole, setIsLoadingRole] = useState<boolean>(false);
 
   // Tela Ativa: 'planner' (Calendário Semana/Mês), 'team_management' (Gerenciamento de Equipe) ou 'executive_summary' (Resumo Executivo Semanal)
   const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary'>('planner');
+
+  // Ao alternar para o modo Membro, redireciona suavemente se estiver em telas administrativas
+  const handleToggleRole = (newRole: UserRole) => {
+    setUserRole(newRole);
+    if (newRole === 'member' && (activeView === 'team_management' || activeView === 'executive_summary')) {
+      setActiveView('planner');
+    }
+  };
 
   // Sincronizar membros da equipe com a tabela perfis do Supabase
   const handleProfilesUpdated = useCallback((profiles: UserProfile[]) => {
@@ -75,7 +84,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     }));
     setTeamMembers(mappedMembers);
 
-    // Se o usuário logado estiver na lista de perfis, sincroniza seu papel real
+    // Se o usuário logado estiver na lista de perfis, sincroniza seu papel real da tabela perfis
     if (user?.id || user?.email) {
       const match = mappedMembers.find(
         (m) =>
@@ -84,24 +93,68 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       );
       if (match) {
         setUserRole(match.role);
+        setIsLoadingRole(false);
       }
     }
   }, [user]);
 
-  // Carregar perfis do Supabase na inicialização
+  // Carregar perfis do Supabase na inicialização e consultar especificamente o perfil do usuário logado
   useEffect(() => {
-    async function loadProfiles() {
+    let isMounted = true;
+
+    async function loadRoleAndProfiles() {
+      setIsLoadingRole(true);
       try {
-        const { data } = await userService.fetchProfiles();
-        if (data) {
-          handleProfilesUpdated(data);
+        // 1. Busca perfil do usuário logado diretamente
+        const { data: userProfile } = await userService.fetchUserProfile(user?.id, user?.email);
+        if (isMounted && userProfile) {
+          setUserRole(userProfile.funcao === 'admin' ? 'admin' : 'member');
+        }
+
+        // 2. Busca lista completa de perfis para a equipe
+        const { data: allProfiles } = await userService.fetchProfiles();
+        if (isMounted && allProfiles) {
+          handleProfilesUpdated(allProfiles);
         }
       } catch {
-        // Falha silenciosa sem poluir o console
+        // Falha silenciosa
+      } finally {
+        if (isMounted) {
+          setIsLoadingRole(false);
+        }
       }
     }
-    loadProfiles();
-  }, [handleProfilesUpdated]);
+
+    loadRoleAndProfiles();
+
+    // Sincronização em tempo real da tabela 'perfis'
+    const channel = supabase
+      .channel('perfis-role-sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'perfis',
+        },
+        async () => {
+          const { data: userProfile } = await userService.fetchUserProfile(user?.id, user?.email);
+          if (isMounted && userProfile) {
+            setUserRole(userProfile.funcao === 'admin' ? 'admin' : 'member');
+          }
+          const { data: allProfiles } = await userService.fetchProfiles();
+          if (isMounted && allProfiles) {
+            handleProfilesUpdated(allProfiles);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, user?.email, handleProfilesUpdated]);
 
   const currentUser: TeamMember = useMemo(() => {
     const found = teamMembers.find(
@@ -724,32 +777,46 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             <RefreshCw className={`w-3 h-3 text-zinc-400 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
           </button>
 
-          {/* Alternador de Perfil RBAC (Admin / Membro) */}
-          <div className="flex items-center gap-1 bg-zinc-100/90 border border-zinc-200/70 px-1.5 py-0.5 rounded-lg">
-            <span className="text-[10px] text-zinc-500 uppercase font-semibold tracking-wider hidden xl:inline">
+          {/* Seletor de Perfil RBAC Interativo no Topo (Admin / Membro) */}
+          <div
+            id="rbac-role-selector-header"
+            className="flex items-center gap-1.5 bg-zinc-100/90 border border-zinc-200/80 px-2 py-1 rounded-lg"
+            title="Seletor de perfil e alternância de visualização (Administrador / Membro)"
+          >
+            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider hidden sm:inline">
               Perfil:
             </span>
-            <button
-              id="rbac-role-toggle-button"
-              type="button"
-              onClick={() =>
-                setUserRole((prev) => {
-                  const nextRole = prev === 'admin' ? 'member' : 'admin';
-                  if (nextRole === 'member') {
-                    setActiveView('planner');
-                  }
-                  return nextRole;
-                })
-              }
-              className={`text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
-                userRole === 'admin'
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-              title="Clique para alternar permissão (Admin / Membro)"
-            >
-              {userRole === 'admin' ? '🛡️ Admin' : '👤 Membro'}
-            </button>
+            <div className="flex items-center gap-1 p-0.5 bg-zinc-200/70 rounded-md">
+              <button
+                id="header-role-admin-button"
+                type="button"
+                onClick={() => handleToggleRole('admin')}
+                className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                  userRole === 'admin'
+                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+                title="Visualização e controle como Administrador"
+              >
+                <span>🛡️</span>
+                <span>Admin</span>
+              </button>
+
+              <button
+                id="header-role-member-button"
+                type="button"
+                onClick={() => handleToggleRole('member')}
+                className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer ${
+                  userRole === 'member'
+                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+                title="Visualização como Membro da Equipe"
+              >
+                <span>👤</span>
+                <span>Membro</span>
+              </button>
+            </div>
           </div>
 
           {/* Botão de Sair */}
@@ -803,8 +870,16 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             setSidebarTab(tab);
           }}
           activeView={activeView}
-          onOpenTeamManagement={() => setActiveView('team_management')}
-          onOpenExecutiveSummary={() => setActiveView('executive_summary')}
+          onOpenTeamManagement={() => {
+            if (userRole === 'admin') {
+              setActiveView('team_management');
+            }
+          }}
+          onOpenExecutiveSummary={() => {
+            if (userRole === 'admin') {
+              setActiveView('executive_summary');
+            }
+          }}
         />
 
         {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) OU Tela de Gerenciamento de Equipe OU Resumo Executivo */}
@@ -821,6 +896,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           ) : activeView === 'team_management' && userRole === 'admin' ? (
             <TeamManagementView
               currentUserEmail={user?.email}
+              userRole={userRole}
+              isAdmin={userRole === 'admin'}
               onBackToPlanner={() => setActiveView('planner')}
               onProfileUpdated={handleProfilesUpdated}
             />

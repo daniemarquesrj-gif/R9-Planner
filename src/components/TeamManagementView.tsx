@@ -20,12 +20,16 @@ import { TeamMember } from '../types.ts';
 
 interface TeamManagementViewProps {
   currentUserEmail?: string;
+  userRole?: 'admin' | 'member';
+  isAdmin?: boolean;
   onBackToPlanner: () => void;
   onProfileUpdated?: (updatedProfiles: UserProfile[]) => void;
 }
 
 export default function TeamManagementView({
   currentUserEmail,
+  userRole = 'member',
+  isAdmin = false,
   onBackToPlanner,
   onProfileUpdated,
 }: TeamManagementViewProps) {
@@ -102,8 +106,13 @@ export default function TeamManagementView({
     };
   }, [loadProfiles]);
 
-  // Alterar Função / Cargo do Usuário no Supabase
+  // Alterar Função / Cargo do Usuário no Supabase (Estritamente permitido apenas para Administradores)
   const handleRoleChange = async (userId: string, newRole: 'admin' | 'membro') => {
+    if (!isAdmin) {
+      showNotification('Apenas administradores têm permissão para alterar funções.', 'error');
+      return;
+    }
+
     const userToUpdate = profiles.find((p) => p.id === userId);
     if (!userToUpdate) return;
     if (userToUpdate.funcao === newRole) return;
@@ -133,6 +142,30 @@ export default function TeamManagementView({
       );
     }
   };
+
+  // Se o usuário não for administrador, bloqueia a exibição da tela
+  if (!isAdmin) {
+    return (
+      <div className="flex-1 min-h-0 bg-[#f8f9fa] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 text-center space-y-4">
+          <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-zinc-900">Acesso Restrito a Administradores</h2>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            Esta tela de gerenciamento de equipe e controle de papéis é exclusiva para administradores validados na tabela <code className="font-mono bg-zinc-100 px-1 py-0.5 rounded">perfis</code> do Supabase.
+          </p>
+          <button
+            type="button"
+            onClick={onBackToPlanner}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+          >
+            Voltar ao Planner
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Filtragem e Métricas
   const filteredProfiles = useMemo(() => {
