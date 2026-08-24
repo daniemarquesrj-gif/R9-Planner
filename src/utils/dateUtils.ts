@@ -9,7 +9,21 @@ export function formatISO(date: Date): string {
 
 export function parseISO(str: string): Date {
   const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return new Date(y, m - 1, d, 12, 0, 0);
+}
+
+/**
+ * Retorna a data de hoje estritamente baseada no fuso local do cliente (new Date())
+ */
+export function getTodayDate(): Date {
+  return new Date();
+}
+
+/**
+ * Retorna a data de hoje formatada em YYYY-MM-DD no fuso local do cliente
+ */
+export function getTodayISO(): string {
+  return formatISO(new Date());
 }
 
 /**
@@ -135,28 +149,28 @@ export const WEEKDAYS_PT = [
 export const WEEKDAYS_SHORT_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 /**
- * Retorna os 7 dias da semana (de Domingo a Sábado) para uma data de referência
+ * Retorna os 7 dias da semana (de Domingo a Sábado) para uma data de referência no fuso local
  */
 export function getWeekDates(referenceDate: Date): Date[] {
-  const date = new Date(referenceDate);
+  const y = referenceDate.getFullYear();
+  const m = referenceDate.getMonth();
+  const d = referenceDate.getDate();
+  const date = new Date(y, m, d, 12, 0, 0);
   const day = date.getDay(); // 0 = Domingo, 1 = Segunda, etc.
   
   // Retroceder até o Domingo da semana atual
-  const sunday = new Date(date);
-  sunday.setDate(date.getDate() - day);
-  sunday.setHours(0, 0, 0, 0);
+  const sunday = new Date(y, m, d - day, 12, 0, 0);
 
   const week: Date[] = [];
   for (let i = 0; i < 7; i++) {
-    const current = new Date(sunday);
-    current.setDate(sunday.getDate() + i);
+    const current = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i, 12, 0, 0);
     week.push(current);
   }
   return week;
 }
 
 /**
- * Retorna texto formatado da semana, ex: "16 a 22 de Agosto de 2026"
+ * Retorna texto formatado da semana no padrão em português, ex: "18 a 24 de Agosto de 2026"
  */
 export function formatWeekInterval(weekDates: Date[]): string {
   if (weekDates.length < 7) return '';
@@ -188,8 +202,8 @@ export interface MonthDayCell {
 
 export function getMonthGrid(year: number, month: number, today: Date): MonthDayCell[] {
   const todayStr = formatISO(today);
-  const firstDayOfMonth = new Date(year, month, 1);
-  const lastDayOfMonth = new Date(year, month + 1, 0);
+  const firstDayOfMonth = new Date(year, month, 1, 12, 0, 0);
+  const lastDayOfMonth = new Date(year, month + 1, 0, 12, 0, 0);
 
   const startDayOfWeek = firstDayOfMonth.getDay(); // 0 = Dom, 1 = Seg...
   const totalDaysInMonth = lastDayOfMonth.getDate();
@@ -197,9 +211,9 @@ export function getMonthGrid(year: number, month: number, today: Date): MonthDay
   const cells: MonthDayCell[] = [];
 
   // Dias do mês anterior para completar a primeira semana
-  const prevMonthLastDay = new Date(year, month, 0).getDate();
+  const prevMonthLastDay = new Date(year, month, 0, 12, 0, 0).getDate();
   for (let i = startDayOfWeek - 1; i >= 0; i--) {
-    const date = new Date(year, month - 1, prevMonthLastDay - i);
+    const date = new Date(year, month - 1, prevMonthLastDay - i, 12, 0, 0);
     const dateStr = formatISO(date);
     cells.push({
       date,
@@ -212,7 +226,7 @@ export function getMonthGrid(year: number, month: number, today: Date): MonthDay
 
   // Dias do mês atual
   for (let d = 1; d <= totalDaysInMonth; d++) {
-    const date = new Date(year, month, d);
+    const date = new Date(year, month, d, 12, 0, 0);
     const dateStr = formatISO(date);
     cells.push({
       date,
@@ -226,7 +240,7 @@ export function getMonthGrid(year: number, month: number, today: Date): MonthDay
   // Dias do próximo mês para completar a grade de 35 ou 42 células
   const remaining = (7 - (cells.length % 7)) % 7;
   for (let d = 1; d <= remaining; d++) {
-    const date = new Date(year, month + 1, d);
+    const date = new Date(year, month + 1, d, 12, 0, 0);
     const dateStr = formatISO(date);
     cells.push({
       date,

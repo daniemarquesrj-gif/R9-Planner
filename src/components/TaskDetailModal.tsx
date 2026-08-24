@@ -28,6 +28,7 @@ import {
   TaskStatus,
   CustomFormField,
   CustomFieldValue,
+  TagBucket,
 } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
 
@@ -41,6 +42,8 @@ interface TaskDetailModalProps {
   teamMembers: TeamMember[];
   currentUser: TeamMember;
   userRole: UserRole;
+  buckets?: string[];
+  tagBuckets?: TagBucket[];
 }
 
 export default function TaskDetailModal({
@@ -53,6 +56,8 @@ export default function TaskDetailModal({
   teamMembers,
   currentUser,
   userRole,
+  buckets = BUCKET_OPTIONS,
+  tagBuckets = [],
 }: TaskDetailModalProps) {
   if (!isOpen || !task) return null;
 
@@ -528,7 +533,7 @@ export default function TaskDetailModal({
                     onChange={(e) => handleFieldChange('bucket', e.target.value)}
                     className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
                   >
-                    {BUCKET_OPTIONS.map((b) => (
+                    {buckets.map((b) => (
                       <option key={b} value={b}>
                         {b}
                       </option>
@@ -741,13 +746,49 @@ export default function TaskDetailModal({
                       <button
                         type="button"
                         onClick={() => handleRemoveTag(tag)}
-                        className="text-gray-400 hover:text-red-600 ml-0.5"
+                        className="text-gray-400 hover:text-red-600 ml-0.5 cursor-pointer"
                       >
                         &times;
                       </button>
                     </span>
                   ))}
                 </div>
+
+                {/* Sugestões rápidas de tags cadastradas */}
+                {tagBuckets.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 my-2">
+                    <span className="text-[10px] text-zinc-400 mr-1">Sugestões:</span>
+                    {tagBuckets.map((tb) => {
+                      const isSelected = task.tags?.includes(tb.nome);
+                      return (
+                        <button
+                          key={tb.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              handleRemoveTag(tb.nome);
+                            } else {
+                              const updatedTags = [...(task.tags || []), tb.nome];
+                              handleFieldChange('tags', updatedTags);
+                            }
+                          }}
+                          className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                          }`}
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ backgroundColor: tb.cor || '#003067' }}
+                          />
+                          <span>{tb.nome}</span>
+                          {isSelected && <span>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 mt-2">
                   <input

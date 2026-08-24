@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, AlertCircle } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
-import { MonthDayCell, WEEKDAYS_SHORT_PT } from '../utils/dateUtils.ts';
+import { MonthDayCell, WEEKDAYS_SHORT_PT, getTodayISO } from '../utils/dateUtils.ts';
 
 interface MonthlyViewProps {
   monthCells: MonthDayCell[];
@@ -21,7 +21,7 @@ export default function MonthlyView({
   tasks,
   teamMembers,
   userRole,
-  todayISO = '2026-08-22',
+  todayISO = getTodayISO(),
   onTaskClick,
   onToggleStatus,
   onDragStart,

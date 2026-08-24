@@ -8,8 +8,11 @@ import {
   CheckSquare,
   SlidersHorizontal,
   AlertCircle,
+  ChevronUp,
+  Minus,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
+import { getTodayISO } from '../utils/dateUtils.ts';
 
 interface TaskCardProps {
   task: Task;
@@ -30,7 +33,7 @@ export default function TaskCard({
   onToggleStatus,
   onDragStart,
   compact = false,
-  todayISO = '2026-08-22',
+  todayISO = getTodayISO(),
 }: TaskCardProps) {
   const isAdmin = userRole === 'admin';
   const isConcluida = task.status === 'concluida';
@@ -45,10 +48,14 @@ export default function TaskCard({
 
   const assignedMember = teamMembers.find((m) => m.id === task.assignedTo);
 
-  // Borda lateral para prioridade ou destaque visual suave com efeito de pulsação para atrasadas
+  // Borda lateral para prioridade ou destaque visual suave
   const getCardBorderClass = () => {
     if (isOverdue) {
-      return 'border-l-[4px] border-l-rose-500 border-rose-200/90 bg-rose-50/20 ring-1 ring-rose-400/30';
+      return 'border-l-[3.5px] border-l-rose-500 border-rose-200/90 bg-rose-50/15 ring-1 ring-rose-400/20';
+    }
+
+    if (task.recurrence && task.recurrence !== 'Nenhuma') {
+      return 'border-l-[3.5px] border-l-emerald-500';
     }
 
     switch (task.priority) {
@@ -60,7 +67,7 @@ export default function TaskCard({
         return 'border-l-[3.5px] border-l-blue-500';
       case 'Baixa':
       default:
-        return 'border-l-[3.5px] border-l-zinc-300';
+        return 'border-l-[3.5px] border-l-slate-300';
     }
   };
 
@@ -81,15 +88,15 @@ export default function TaskCard({
   const hasRequiredFields = requiredFieldsCount > 0;
   const isFormComplete = filledFieldsCount >= requiredFieldsCount;
 
-  // Seleciona no máximo uma tag principal para não poluir o card
+  // Seleciona categoria principal
   const primaryBadge = task.bucket || (task.tags && task.tags[0]) || null;
 
   // Texto curto formatado para recorrência
   const getRecurrenceLabel = (rec: string) => {
-    if (rec === 'Segunda a Sexta') return 'Seg–Sex';
-    if (rec === 'Diariamente') return 'Diário';
-    if (rec === 'Semanalmente') return 'Semanal';
-    if (rec === 'Mensalmente') return 'Mensal';
+    if (rec === 'Segunda a Sexta') return 'Mon-Fri';
+    if (rec === 'Diariamente') return 'Daily';
+    if (rec === 'Semanalmente') return 'Weekly';
+    if (rec === 'Mensalmente') return 'Monthly';
     return rec;
   };
 
@@ -103,23 +110,23 @@ export default function TaskCard({
         }
       }}
       onClick={() => onClick(task)}
-      className={`group bg-white rounded-lg border transition-all duration-150 relative select-none ${getCardBorderClass()} ${
+      className={`group bg-white rounded-xl border transition-all duration-150 relative select-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${getCardBorderClass()} ${
         isAdmin
-          ? 'cursor-grab active:cursor-grabbing hover:border-zinc-300 hover:shadow-sm'
-          : 'cursor-pointer hover:border-zinc-300 hover:shadow-sm'
+          ? 'cursor-grab active:cursor-grabbing hover:border-slate-300'
+          : 'cursor-pointer hover:border-slate-300'
       } ${
         isConcluida
-          ? 'border-zinc-200/70 bg-zinc-50/60 opacity-75'
+          ? 'border-slate-200/70 bg-slate-50/60 opacity-80'
           : isOverdue
-          ? 'hover:border-rose-300 shadow-xs'
+          ? 'hover:border-rose-300'
           : isEmAndamento
-          ? 'border-blue-200/80 bg-white shadow-xs ring-1 ring-blue-500/10'
-          : 'border-zinc-200/80 bg-white shadow-xs'
+          ? 'border-blue-200/90 bg-white ring-1 ring-blue-500/10'
+          : 'border-slate-200/90 bg-white'
       } ${compact ? 'p-2.5' : 'p-3'}`}
     >
       {/* Alça de Arraste sutil no hover para Admin */}
       {isAdmin && (
-        <div className="absolute top-2 right-1.5 opacity-0 group-hover:opacity-40 transition-opacity text-zinc-400">
+        <div className="absolute top-2.5 right-2 opacity-0 group-hover:opacity-40 transition-opacity text-slate-400">
           <GripVertical className="w-3.5 h-3.5" />
         </div>
       )}
@@ -134,7 +141,7 @@ export default function TaskCard({
               ? 'text-emerald-600 hover:text-emerald-700'
               : isOverdue
               ? 'text-rose-400 hover:text-rose-600'
-              : 'text-zinc-300 hover:text-blue-600'
+              : 'text-slate-300 hover:text-[#004691]'
           }`}
           title={
             isConcluida
@@ -147,33 +154,33 @@ export default function TaskCard({
           }
         >
           {isConcluida ? (
-            <CheckCircle2 className="w-4 h-4" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           ) : (
-            <Circle className="w-4 h-4 stroke-[1.75]" />
+            <Circle className="w-4 h-4 stroke-[1.75] text-slate-400 hover:text-[#004691]" />
           )}
         </button>
 
         <div className="flex-1 min-w-0 pr-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             <h4
-              className={`text-[13px] font-medium leading-snug break-words transition-colors ${
+              className={`text-[13px] font-semibold leading-snug break-words transition-colors ${
                 isConcluida
-                  ? 'line-through text-zinc-400 font-normal'
+                  ? 'line-through text-slate-400 font-normal'
                   : isOverdue
-                  ? 'text-zinc-900 font-semibold'
-                  : 'text-zinc-900 group-hover:text-zinc-950'
+                  ? 'text-slate-900 font-bold'
+                  : 'text-slate-900 group-hover:text-slate-950'
               }`}
             >
               {task.title}
             </h4>
 
-            {/* Badge Indicador de Atraso com Efeito Suave de Pulsação */}
+            {/* Badge Indicador de Atraso */}
             {isOverdue && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100/90 text-rose-800 border border-rose-300/80 shadow-2xs animate-pulse shrink-0"
+                className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-rose-100/90 text-rose-800 border border-rose-300/80 animate-pulse shrink-0"
                 title="Ação pendente com data agendada anterior a hoje"
               >
-                <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
                 <span>Atrasada</span>
               </span>
             )}
@@ -181,29 +188,41 @@ export default function TaskCard({
         </div>
       </div>
 
-      {/* Linha de Metadados Sutis: Categoria Única + Recorrência Minimalista */}
-      {(primaryBadge || (task.recurrence && task.recurrence !== 'Nenhuma')) && (
-        <div className="mt-1.5 pl-6 flex items-center gap-1.5 flex-wrap">
+      {/* Linha de Tags: Categoria + Recorrência + Prioridade */}
+      {(primaryBadge || (task.recurrence && task.recurrence !== 'Nenhuma') || task.priority) && (
+        <div className="mt-2 pl-6 flex items-center gap-1.5 flex-wrap">
           {primaryBadge && (
-            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-zinc-100/90 text-zinc-600 border border-zinc-200/50">
+            <span className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/60">
               {primaryBadge}
             </span>
           )}
 
           {task.recurrence && task.recurrence !== 'Nenhuma' && (
             <span
-              className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-sky-50/80 text-sky-700 border border-sky-200/60"
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100/90 text-slate-700 border border-slate-200/60"
               title={`Recorrência: ${task.recurrence}`}
             >
-              <Repeat className="w-2.5 h-2.5" />
+              <Repeat className="w-2.5 h-2.5 text-slate-500" />
               <span>{getRecurrenceLabel(task.recurrence)}</span>
             </span>
           )}
+
+          {task.priority === 'Urgente' || task.priority === 'Alta' ? (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200/60">
+              <ChevronUp className="w-2.5 h-2.5" />
+              <span>High</span>
+            </span>
+          ) : task.priority === 'Média' ? (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/60">
+              <ChevronUp className="w-2.5 h-2.5" />
+              <span>Med</span>
+            </span>
+          ) : null}
         </div>
       )}
 
-      {/* Rodapé Compacto: Avatar do Responsável + Indicadores (Formulário + Comentários) */}
-      <div className="mt-2.5 pt-2 border-t border-zinc-100 flex items-center justify-between pl-0.5 text-zinc-500">
+      {/* Rodapé: Avatar do Responsável + Indicadores */}
+      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between pl-0.5 text-slate-500">
         {/* Responsável */}
         {assignedMember ? (
           <div
@@ -213,27 +232,27 @@ export default function TaskCard({
             })`}
           >
             <div
-              className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${assignedMember.avatarColor}`}
+              className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 bg-[#003067] text-white shadow-2xs`}
             >
               {assignedMember.initials}
             </div>
-            <span className="text-[11px] text-zinc-600 truncate max-w-[90px] font-normal">
-              {assignedMember.name.split(' ')[0]}
+            <span className="text-[11px] text-slate-600 truncate max-w-[100px] font-normal">
+              {assignedMember.email ? assignedMember.email.split('@')[0] : assignedMember.name}
             </span>
           </div>
         ) : (
-          <span className="text-[10px] text-zinc-400 italic">Sem responsável</span>
+          <span className="text-[10px] text-slate-400 italic">Sem responsável</span>
         )}
 
-        {/* Indicadores Compactos alinhados à direita: Formulário + Comentários */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Indicador Elegante de Formulário / Métricas */}
+        {/* Indicadores Compactos: Formulário + Comentários */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Indicador de Formulário / Subtarefas */}
           {hasRequiredFields && (
             <div
-              className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${
+              className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
                 isFormComplete || isConcluida
-                  ? 'text-emerald-700 bg-emerald-50/80 border border-emerald-200/60'
-                  : 'text-amber-700 bg-amber-50/80 border border-amber-200/60'
+                  ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60'
+                  : 'text-amber-700 bg-amber-50 border border-amber-200/60'
               }`}
               title={
                 isFormComplete || isConcluida
@@ -241,11 +260,7 @@ export default function TaskCard({
                   : `Formulário pendente: ${filledFieldsCount}/${requiredFieldsCount} campos preenchidos`
               }
             >
-              {isFormComplete || isConcluida ? (
-                <CheckSquare className="w-3 h-3 text-emerald-600" />
-              ) : (
-                <SlidersHorizontal className="w-3 h-3 text-amber-600" />
-              )}
+              <CheckSquare className="w-3 h-3 text-emerald-600" />
               <span>
                 {filledFieldsCount}/{requiredFieldsCount}
               </span>
@@ -255,7 +270,7 @@ export default function TaskCard({
           {/* Indicador de Comentários */}
           {task.comments && task.comments.length > 0 && (
             <div
-              className="flex items-center gap-1 text-zinc-400 hover:text-zinc-600 text-[10px]"
+              className="flex items-center gap-1 text-slate-400 hover:text-slate-600 text-[10px]"
               title={`${task.comments.length} comentário(s)`}
             >
               <MessageSquare className="w-3 h-3" />
@@ -267,4 +282,5 @@ export default function TaskCard({
     </div>
   );
 }
+
 

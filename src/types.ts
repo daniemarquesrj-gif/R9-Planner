@@ -38,6 +38,14 @@ export interface CustomFieldValue {
   value: string | number;
 }
 
+export interface TagBucket {
+  id: string;
+  nome: string;
+  cor?: string;
+  descricao?: string;
+  created_at?: string;
+}
+
 export interface Task {
   id: string;
   title: string;

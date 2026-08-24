@@ -9,7 +9,7 @@ import {
   HelpCircle,
   CheckCircle2,
 } from 'lucide-react';
-import { Task, TeamMember, Priority, Recurrence, CustomFormField } from '../types.ts';
+import { Task, TeamMember, Priority, Recurrence, CustomFormField, TagBucket } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
 
 interface NewTaskModalProps {
@@ -18,6 +18,8 @@ interface NewTaskModalProps {
   onCreateTask: (newTask: Omit<Task, 'id' | 'comments'>) => void;
   teamMembers: TeamMember[];
   defaultScheduledDate?: string | null;
+  buckets?: string[];
+  tagBuckets?: TagBucket[];
 }
 
 export default function NewTaskModal({
@@ -26,14 +28,17 @@ export default function NewTaskModal({
   onCreateTask,
   teamMembers,
   defaultScheduledDate = null,
+  buckets = BUCKET_OPTIONS,
+  tagBuckets = [],
 }: NewTaskModalProps) {
   if (!isOpen) return null;
 
+  const initialBucket = buckets.length > 0 ? buckets[0] : 'Operacional';
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('Alta');
   const [recurrence, setRecurrence] = useState<Recurrence>('Nenhuma');
-  const [bucket, setBucket] = useState('Operacional');
+  const [bucket, setBucket] = useState(initialBucket);
   const [assignedTo, setAssignedTo] = useState<string>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -247,9 +252,9 @@ export default function NewTaskModal({
               <select
                 value={bucket}
                 onChange={(e) => setBucket(e.target.value)}
-                className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
+                className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600 font-medium"
               >
-                {BUCKET_OPTIONS.map((b) => (
+                {buckets.map((b) => (
                   <option key={b} value={b}>
                     {b}
                   </option>
@@ -470,9 +475,14 @@ export default function NewTaskModal({
 
           {/* TAGs */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              TAGs
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-gray-700">
+                TAGs
+              </label>
+              {tagBuckets.length > 0 && (
+                <span className="text-[10px] text-zinc-400">Clique nas sugestões abaixo para adicionar</span>
+              )}
+            </div>
             <div className="flex gap-2 mb-2">
               <input
                 type="text"
@@ -490,11 +500,46 @@ export default function NewTaskModal({
               <button
                 type="button"
                 onClick={handleAddTag}
-                className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors cursor-pointer"
               >
                 Adicionar
               </button>
             </div>
+
+            {/* Sugestões rápidas de Tags cadastradas */}
+            {tagBuckets.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 mb-2">
+                <span className="text-[10px] text-zinc-400 mr-1">Sugestões:</span>
+                {tagBuckets.map((tb) => {
+                  const isSelected = tags.includes(tb.nome);
+                  return (
+                    <button
+                      key={tb.id}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          handleRemoveTag(tb.nome);
+                        } else {
+                          setTags([...tags, tb.nome]);
+                        }
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: tb.cor || '#003067' }}
+                      />
+                      <span>{tb.nome}</span>
+                      {isSelected && <span>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
@@ -508,7 +553,7 @@ export default function NewTaskModal({
                     <button
                       type="button"
                       onClick={() => handleRemoveTag(t)}
-                      className="text-gray-400 hover:text-red-600 ml-1"
+                      className="text-gray-400 hover:text-red-600 ml-1 cursor-pointer"
                     >
                       &times;
                     </button>

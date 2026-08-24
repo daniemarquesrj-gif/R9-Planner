@@ -13,7 +13,7 @@ import {
   RefreshCw,
   Database,
 } from 'lucide-react';
-import { Task, TeamMember, UserRole, CustomFieldValue } from '../types.ts';
+import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket } from '../types.ts';
 import {
   getWeekDates,
   formatWeekInterval,
@@ -24,6 +24,7 @@ import {
 } from '../utils/dateUtils.ts';
 import { taskService, mapDbRowToTask } from '../services/taskService.ts';
 import { userService, UserProfile } from '../services/userService.ts';
+import { tagService } from '../services/tagService.ts';
 import { supabase } from '../supabase.js';
 import WeeklyView from './WeeklyView.tsx';
 import MonthlyView from './MonthlyView.tsx';
@@ -33,7 +34,8 @@ import TaskCompletionModal from './TaskCompletionModal.tsx';
 import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
 import TeamManagementView from './TeamManagementView.tsx';
 import ExecutiveWeeklySummary from './ExecutiveWeeklySummary.tsx';
-import { Users } from 'lucide-react';
+import TagManagementView from './TagManagementView.tsx';
+import { Users, Tag } from 'lucide-react';
 
 interface PlannerProps {
   user?: {
@@ -46,9 +48,10 @@ interface PlannerProps {
 }
 
 export default function Planner({ user, onLogout }: PlannerProps) {
-  // Estado das Tarefas e Membros reais do Supabase
+  // Estado das Tarefas, Tags/Categorias e Membros reais do Supabase
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [tagBuckets, setTagBuckets] = useState<TagBucket[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
@@ -63,12 +66,12 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   const isRealAdmin = realUserRole === 'admin';
   const userRole: UserRole = isRealAdmin ? simulatedRole : 'member';
 
-  // Tela Ativa: 'planner' (Calendário Semana/Mês), 'team_management' (Gerenciamento de Equipe) ou 'executive_summary' (Resumo Executivo Semanal)
-  const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary'>('planner');
+  // Tela Ativa: 'planner', 'team_management', 'executive_summary' ou 'tag_management'
+  const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary' | 'tag_management'>('planner');
 
   // Proteção de Rota: se não for admin ativo, bloqueia telas administrativas e redireciona para o planner
   useEffect(() => {
-    if (userRole !== 'admin' && (activeView === 'team_management' || activeView === 'executive_summary')) {
+    if (userRole !== 'admin' && (activeView === 'team_management' || activeView === 'executive_summary' || activeView === 'tag_management')) {
       setActiveView('planner');
     }
   }, [userRole, activeView]);
@@ -76,7 +79,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   // Ao alternar o modo de visualização (exclusivo para Admin), redireciona suavemente se estiver em telas administrativas
   const handleToggleSimulatedRole = (newRole: UserRole) => {
     setSimulatedRole(newRole);
-    if (newRole === 'member' && (activeView === 'team_management' || activeView === 'executive_summary')) {
+    if (newRole === 'member' && (activeView === 'team_management' || activeView === 'executive_summary' || activeView === 'tag_management')) {
       setActiveView('planner');
     }
   };
@@ -292,15 +295,66 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     };
   }, [loadTasksFromSupabase]);
 
+  // Carregamento e sincronização em tempo real das Tags/Categorias (tabela tags_bucket)
+  const loadTagsFromSupabase = useCallback(async () => {
+    try {
+      const { data } = await tagService.fetchTags();
+      if (data) {
+        setTagBuckets(data);
+      }
+    } catch {
+      // Silencioso
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTagsFromSupabase();
+
+    const channel = supabase
+      .channel('tags-bucket-planner-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tags_bucket',
+        },
+        () => {
+          loadTagsFromSupabase();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadTagsFromSupabase]);
+
   // Visualização de Alto Nível: 'week' ou 'month'
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
 
-  // Data de Navegação de Referência (Âncora real da aplicação)
-  const [currentReferenceDate, setCurrentReferenceDate] = useState<Date>(
-    new Date(2026, 7, 22) // 22 de Agosto de 2026
-  );
-  const todayDate = useMemo(() => new Date(2026, 7, 22), []);
+  // Data atual real do sistema do cliente no fuso local (dinâmica)
+  const [todayDate, setTodayDate] = useState<Date>(() => new Date());
   const todayISO = useMemo(() => formatISO(todayDate), [todayDate]);
+
+  // Atualizar data atual automaticamente à meia-noite ou quando a janela do navegador ganha foco
+  useEffect(() => {
+    const updateToday = () => {
+      const now = new Date();
+      if (formatISO(now) !== formatISO(todayDate)) {
+        setTodayDate(now);
+      }
+    };
+    const interval = setInterval(updateToday, 30000); // 30 segundos
+    window.addEventListener('focus', updateToday);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', updateToday);
+    };
+  }, [todayDate]);
+
+  // Data de Navegação de Referência (inicia rigorosamente na data de hoje real do cliente)
+  const [currentReferenceDate, setCurrentReferenceDate] = useState<Date>(() => new Date());
 
   // Modais
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -326,14 +380,25 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   const [navFilter, setNavFilter] = useState<NavFilter>('all');
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
 
-  // Lista única de Buckets / Categorias
+  // Lista única de Buckets / Categorias (tabela tags_bucket + tarefas)
   const allBuckets = useMemo(() => {
     const bucketsSet = new Set<string>();
-    tasks.forEach((t) => {
-      if (t.bucket) bucketsSet.add(t.bucket);
+    // Prioriza tags cadastradas no tags_bucket
+    tagBuckets.forEach((tb) => {
+      if (tb.nome && tb.nome.trim()) bucketsSet.add(tb.nome.trim());
     });
+    // Adiciona buckets das tarefas existentes
+    tasks.forEach((t) => {
+      if (t.bucket && t.bucket.trim()) bucketsSet.add(t.bucket.trim());
+    });
+    // Fallback padrão se vazio
+    if (bucketsSet.size === 0) {
+      ['Operacional', 'Financeiro', 'Tecnologia', 'Marketing', 'Estratégico'].forEach((b) =>
+        bucketsSet.add(b)
+      );
+    }
     return Array.from(bucketsSet);
-  }, [tasks]);
+  }, [tasks, tagBuckets]);
 
   // Contagens para a barra de navegação
   const navCounts = useMemo(() => {
@@ -744,6 +809,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
               <span className="text-xs font-semibold text-zinc-700 hidden sm:inline">
                 {activeView === 'executive_summary'
                   ? 'Resumo Executivo Semanal'
+                  : activeView === 'tag_management'
+                  ? 'Gerenciamento de Tags & Categorias (tags_bucket)'
                   : 'Gerenciamento de Equipe & Permissões'}
               </span>
             </div>
@@ -755,6 +822,24 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           {/* Botões de Atalhos Exclusivos do Administrador */}
           {userRole === 'admin' && (
             <div className="hidden md:flex items-center gap-1.5">
+              {/* Atalho Gerenciar Tags / Categorias */}
+              <button
+                id="header-tag-management-btn"
+                type="button"
+                onClick={() =>
+                  setActiveView((prev) => (prev === 'tag_management' ? 'planner' : 'tag_management'))
+                }
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                  activeView === 'tag_management'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
+                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
+                }`}
+                title="Gerenciar tags e categorias da tabela tags_bucket no Supabase"
+              >
+                <Tag className="w-3.5 h-3.5" />
+                <span>{activeView === 'tag_management' ? 'Ver Calendário' : 'Gerenciar Tags'}</span>
+              </button>
+
               {/* Atalho Resumo Executivo Semanal */}
               <button
                 id="header-executive-summary-btn"
@@ -905,6 +990,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             setSelectedBucket(b);
           }}
           buckets={allBuckets}
+          tagBuckets={tagBuckets}
           counts={navCounts}
           onTaskClick={handleTaskClick}
           onToggleStatus={handleToggleStatus}
@@ -932,11 +1018,24 @@ export default function Planner({ user, onLogout }: PlannerProps) {
               setActiveView('executive_summary');
             }
           }}
+          onOpenTagManagement={() => {
+            if (userRole === 'admin') {
+              setActiveView('tag_management');
+            }
+          }}
         />
 
-        {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) OU Tela de Gerenciamento de Equipe OU Resumo Executivo */}
+        {/* Grade Principal do Calendário OU Telas Administrativas (Equipe, Tags, Resumo) */}
         <main className="flex-1 min-h-0 overflow-hidden relative bg-[#f8f9fa]/80 flex flex-col">
-          {activeView === 'executive_summary' && userRole === 'admin' ? (
+          {activeView === 'tag_management' && userRole === 'admin' ? (
+            <TagManagementView
+              userRole={userRole}
+              isAdmin={isRealAdmin && userRole === 'admin'}
+              tasks={tasks}
+              onTagsUpdated={(updated) => setTagBuckets(updated)}
+              onBackToPlanner={() => setActiveView('planner')}
+            />
+          ) : activeView === 'executive_summary' && userRole === 'admin' ? (
             <ExecutiveWeeklySummary
               tasks={tasks}
               teamMembers={teamMembers}
@@ -1008,15 +1107,19 @@ export default function Planner({ user, onLogout }: PlannerProps) {
         teamMembers={teamMembers}
         currentUser={currentUser}
         userRole={userRole}
+        buckets={allBuckets}
+        tagBuckets={tagBuckets}
       />
 
-      {/* 4. Modal de Nova Ação (Admin - com Construtor de Campos Customizados) */}
+      {/* 4. Modal de Nova Ação (Admin - com Construtor de Campos Customizados e Tags do Supabase) */}
       <NewTaskModal
         isOpen={isNewTaskOpen}
         onClose={() => setIsNewTaskOpen(false)}
         onCreateTask={handleCreateTask}
         teamMembers={teamMembers}
         defaultScheduledDate={defaultNewTaskDate}
+        buckets={allBuckets}
+        tagBuckets={tagBuckets}
       />
 
       {/* 5. Modal de Preenchimento de Formulário Obrigatório ao Concluir Tarefa */}

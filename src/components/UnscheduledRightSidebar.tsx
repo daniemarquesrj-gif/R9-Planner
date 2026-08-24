@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import TaskCard from './TaskCard.tsx';
@@ -55,8 +56,8 @@ export default function UnscheduledRightSidebar({
     return (
       <aside
         id="unscheduled-sidebar-collapsed"
-        className={`h-full w-12 bg-white border-l border-zinc-200/80 flex flex-col items-center py-3 justify-between select-none shrink-0 transition-all ${
-          isDragOver ? 'border-amber-500 bg-amber-50/50' : ''
+        className={`h-full w-12 bg-white border-l border-slate-200/80 flex flex-col items-center py-3 justify-between select-none shrink-0 transition-all ${
+          isDragOver ? 'border-[#004691] bg-blue-50/50' : ''
         }`}
         onDragOver={(e) => {
           if (isAdmin) {
@@ -75,27 +76,27 @@ export default function UnscheduledRightSidebar({
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer"
-          title="Expandir Fila de Tarefas (Não Agendadas)"
+          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          title="Expandir Fila de Tarefas (Pending Actions)"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
 
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-2">
           <div
-            className="w-8 h-8 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center justify-center text-xs font-bold"
-            title={`${unscheduledTasks.length} tarefas na fila não iniciadas`}
+            className="w-7 h-7 rounded-full bg-blue-50 text-[#003067] border border-blue-200 flex items-center justify-center text-xs font-bold"
+            title={`${unscheduledTasks.length} ações pendentes`}
           >
             {unscheduledTasks.length}
           </div>
-          <Inbox className="w-4 h-4 text-amber-600" />
+          <Inbox className="w-4 h-4 text-slate-500" />
         </div>
 
         {isAdmin ? (
           <button
             type="button"
             onClick={onOpenNewTaskModal}
-            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+            className="p-1.5 text-[#003067] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             title="Adicionar ação na fila"
           >
             <Plus className="w-4 h-4" />
@@ -110,8 +111,8 @@ export default function UnscheduledRightSidebar({
   return (
     <aside
       id="unscheduled-right-sidebar"
-      className={`h-full w-72 lg:w-80 bg-white border-l border-zinc-200/80 flex flex-col shrink-0 select-none overflow-hidden transition-all duration-200 ${
-        isDragOver ? 'ring-2 ring-amber-400 bg-amber-50/20' : ''
+      className={`h-full w-72 lg:w-80 bg-white border-l border-slate-200/80 flex flex-col shrink-0 select-none overflow-hidden transition-all duration-200 ${
+        isDragOver ? 'ring-2 ring-[#004691] bg-blue-50/20' : ''
       }`}
       onDragOver={(e) => {
         if (isAdmin) {
@@ -128,96 +129,69 @@ export default function UnscheduledRightSidebar({
       }}
     >
       {/* Cabeçalho */}
-      <div className="p-3.5 border-b border-zinc-200/70 flex items-center justify-between bg-zinc-50/60 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
-            <Inbox className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <h3 className="text-xs font-bold text-zinc-900 leading-tight">
-                Fila Não Agendadas
-              </h3>
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800">
-                {unscheduledTasks.length}
-              </span>
-            </div>
-            <span className="text-[10px] text-zinc-400">
-              Arraste para o calendário
-            </span>
-          </div>
+      <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-bold text-slate-900 leading-tight">
+            Pending Actions
+          </h3>
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+            {unscheduledTasks.length}
+          </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
-          title="Recolher painel"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            title="Filtros"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            title="Recolher painel"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Alerta quando em modo DragOver para desmarcar */}
+      {/* Alerta quando em modo DragOver */}
       {isDragOver && (
-        <div className="p-2.5 bg-amber-50 border-b border-amber-200 text-[11px] font-semibold text-amber-800 text-center animate-pulse shrink-0">
-          Solte aqui para mover para a Fila Não Agendada
+        <div className="p-2.5 bg-blue-50 border-b border-blue-200 text-xs font-semibold text-[#003067] text-center animate-pulse shrink-0">
+          Solte aqui para mover para Pending Actions
         </div>
       )}
 
-      {/* Barra de Pesquisa + Ação Rápida */}
-      <div className="p-3 border-b border-zinc-100 bg-zinc-50/40 space-y-2 shrink-0">
+      {/* Barra de Pesquisa */}
+      <div className="p-3 border-b border-slate-100 bg-white shrink-0">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Buscar na fila..."
+            placeholder="Search tasks..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-500/20 text-zinc-800 placeholder-zinc-400"
+            className="w-full pl-8 pr-3 py-2 text-xs bg-[#f1f5f9] border border-transparent rounded-xl outline-none focus:border-[#004691] focus:bg-white text-slate-800 placeholder-slate-400 transition-all"
           />
         </div>
-
-        {isAdmin && (
-          <div className="flex items-center justify-between pt-0.5">
-            <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-              <GripVertical className="w-3 h-3 text-blue-500" />
-              Arraste para as colunas
-            </span>
-            <button
-              type="button"
-              onClick={onOpenNewTaskModal}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Nova Ação</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Lista de Cards da Fila */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-zinc-50/30">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-[#f7f9fb]/50">
         {filteredTasks.length === 0 ? (
-          <div className="h-48 flex flex-col items-center justify-center text-center p-3 border border-dashed border-zinc-200 rounded-xl bg-white">
-            <Inbox className="w-6 h-6 text-zinc-300 mb-1.5" />
-            <p className="text-xs font-semibold text-zinc-700">
-              Fila vazia
+          <div className="h-48 flex flex-col items-center justify-center text-center p-3 border border-dashed border-slate-200 rounded-2xl bg-white">
+            <Inbox className="w-6 h-6 text-slate-300 mb-1.5" />
+            <p className="text-xs font-semibold text-slate-700">
+              Nenhuma ação pendente
             </p>
-            <p className="text-[10px] text-zinc-400 mt-0.5 max-w-[180px]">
+            <p className="text-[11px] text-slate-400 mt-0.5 max-w-[180px]">
               {searchTerm
                 ? 'Nenhum resultado para a busca.'
-                : 'Todas as tarefas estão agendadas.'}
+                : 'Todas as tarefas estão agendadas no calendário.'}
             </p>
-            {isAdmin && !searchTerm && (
-              <button
-                type="button"
-                onClick={onOpenNewTaskModal}
-                className="mt-2.5 px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-              >
-                + Adicionar à Fila
-              </button>
-            )}
           </div>
         ) : (
           filteredTasks.map((task) => (
@@ -235,12 +209,19 @@ export default function UnscheduledRightSidebar({
         )}
       </div>
 
-      {/* Rodapé informativo */}
-      <div className="p-2.5 border-t border-zinc-200/70 bg-zinc-50/50 text-center text-[10px] text-zinc-400 shrink-0">
-        {isAdmin
-          ? '💡 Arraste qualquer item desta lista para os dias da semana'
-          : '🔒 Visualização de membro da fila geral'}
-      </div>
+      {/* Rodapé com botão + Add Action */}
+      {isAdmin && (
+        <div className="p-3 border-t border-slate-100 bg-white shrink-0">
+          <button
+            type="button"
+            onClick={onOpenNewTaskModal}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-[#003067] hover:bg-[#00224b] text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Add Action</span>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

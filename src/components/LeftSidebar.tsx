@@ -21,9 +21,10 @@ import {
   Shield,
   ShieldCheck,
 } from 'lucide-react';
-import { Task, TeamMember, UserRole } from '../types.ts';
+import { Task, TeamMember, UserRole, TagBucket } from '../types.ts';
 import { MONTH_NAMES_PT } from '../utils/dateUtils.ts';
 import TaskCard from './TaskCard.tsx';
+import { Tag } from 'lucide-react';
 
 export type SidebarTab = 'planner' | 'unscheduled' | 'summary';
 export type NavFilter = 'all' | 'my_day' | 'my_tasks' | 'urgent' | 'unscheduled';
@@ -41,6 +42,7 @@ interface LeftSidebarProps {
   selectedBucket: string | null;
   onSelectBucket: (bucket: string | null) => void;
   buckets: string[];
+  tagBuckets?: TagBucket[];
   // Contagens
   counts: {
     myDay: number;
@@ -61,10 +63,11 @@ interface LeftSidebarProps {
   // Aba Ativa
   activeTab: SidebarTab;
   onSelectTab: (tab: SidebarTab) => void;
-  // Gestão de Equipe e Resumo Executivo (Exclusivo Administrador)
-  activeView?: 'planner' | 'team_management' | 'executive_summary';
+  // Gestão de Equipe, Resumo Executivo e Tags/Categorias (Exclusivo Administrador)
+  activeView?: 'planner' | 'team_management' | 'executive_summary' | 'tag_management';
   onOpenTeamManagement?: () => void;
   onOpenExecutiveSummary?: () => void;
+  onOpenTagManagement?: () => void;
 }
 
 export default function LeftSidebar({
@@ -79,6 +82,7 @@ export default function LeftSidebar({
   selectedBucket,
   onSelectBucket,
   buckets,
+  tagBuckets = [],
   counts,
   onTaskClick,
   onToggleStatus,
@@ -92,6 +96,7 @@ export default function LeftSidebar({
   activeView = 'planner',
   onOpenTeamManagement,
   onOpenExecutiveSummary,
+  onOpenTagManagement,
 }: LeftSidebarProps) {
   // Estado interno para busca na fila (Admin)
   const [searchTerm, setSearchTerm] = useState('');
@@ -160,15 +165,15 @@ export default function LeftSidebar({
       label: 'Meu dia',
       icon: Sun,
       color: 'text-amber-500',
-      activeBg: 'bg-amber-50 text-amber-900 font-semibold',
+      activeBg: 'bg-[#d0e1fb] text-[#003067] font-bold shadow-xs',
       count: counts.myDay,
     },
     {
       id: 'my_tasks' as NavFilter,
       label: 'Minhas tarefas',
       icon: CheckSquare,
-      color: 'text-blue-500',
-      activeBg: 'bg-blue-50 text-blue-900 font-semibold',
+      color: 'text-[#004691]',
+      activeBg: 'bg-[#d0e1fb] text-[#003067] font-bold shadow-xs',
       count: counts.myTasks,
     },
     {
@@ -176,15 +181,15 @@ export default function LeftSidebar({
       label: 'Importantes',
       icon: Zap,
       color: 'text-rose-500',
-      activeBg: 'bg-rose-50 text-rose-900 font-semibold',
+      activeBg: 'bg-[#d0e1fb] text-[#003067] font-bold shadow-xs',
       count: counts.urgent,
     },
     {
       id: 'all' as NavFilter,
       label: 'Visão Geral (Todas)',
       icon: Calendar,
-      color: 'text-indigo-500',
-      activeBg: 'bg-zinc-100 text-zinc-900 font-semibold',
+      color: 'text-slate-600',
+      activeBg: 'bg-[#d0e1fb] text-[#003067] font-bold shadow-xs',
       count: counts.all,
     },
   ];
@@ -263,6 +268,24 @@ export default function LeftSidebar({
                 {overdueTasks.length > 0 && (
                   <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
                 )}
+              </button>
+
+              {/* Botão Colapsado: Gerenciar Tags / Categorias (Exclusivo Admin) */}
+              <button
+                id="collapsed-tag-management-button"
+                type="button"
+                onClick={() => {
+                  onOpenTagManagement?.();
+                  onToggleCollapse();
+                }}
+                className={`p-2 rounded-lg relative transition-colors cursor-pointer ${
+                  activeView === 'tag_management'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'text-zinc-400 hover:text-blue-700 hover:bg-blue-50'
+                }`}
+                title="Gerenciar Tags & Categorias (tabela tags_bucket)"
+              >
+                <Tag className="w-4 h-4" />
               </button>
 
               {/* Botão Colapsado: Resumo Executivo Semanal (Exclusivo Admin) */}
@@ -360,44 +383,63 @@ export default function LeftSidebar({
       id="planner-left-sidebar"
       className="h-full w-72 lg:w-80 bg-white border-r border-zinc-200/80 flex flex-col justify-between shrink-0 select-none overflow-hidden transition-all duration-200 z-20"
     >
-      {/* 1. TOPO DA BARRA LATERAL: TÍTULO + CONTROLE DE ABAS BASEADO NO PERFIL RBAC */}
-      <div className="flex flex-col shrink-0 border-b border-zinc-200/70 bg-zinc-50/50">
-        <div className="h-12 px-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center shadow-2xs text-xs">
-              <Layers className="w-3.5 h-3.5" />
+      {/* 1. TOPO DA BARRA LATERAL: PERFIL DO USUÁRIO + BOTÃO NOVA AÇÃO + ABAS */}
+      <div className="flex flex-col shrink-0 border-b border-slate-200/80 bg-white p-3 space-y-3">
+        {/* Bloco de Usuário Topo */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 bg-[#003067] text-white shadow-sm"
+            >
+              {currentUser.initials}
             </div>
-            <span className="text-xs font-bold text-zinc-900 tracking-tight">
-              {isAdmin ? 'Painel do Administrador' : 'Painel de Acompanhamento'}
-            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-bold text-slate-900 truncate leading-tight">
+                {currentUser.name}
+              </p>
+              <span className="text-[11px] text-slate-500 font-medium truncate block">
+                {isAdmin ? 'Administrator • R9 Corp' : 'Standard User • R9 Corp'}
+              </span>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-md transition-colors cursor-pointer"
+            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             title="Recolher barra lateral"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
         </div>
 
+        {/* Botão de Criar Nova Ação (Exclusivo para Administrador) */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={onOpenNewTaskModal}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-[#003067] hover:bg-[#00224b] text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ New Action</span>
+          </button>
+        )}
+
         {/* CONTROLE DE ABAS:
             - ADMINISTRADOR: 3 Abas (Planner | Fila | Resumo)
-            - USUÁRIO COMUM (MEMBRO): 2 Abas (Planner | Resumo) - Fila totalmente oculta
+            - USUÁRIO COMUM (MEMBRO): 2 Abas (Planner | Resumo)
         */}
-        <div className="px-2.5 pb-2">
+        <div>
           {isAdmin ? (
-            /* Layout de 3 Abas para Administrador com Destaque Dinâmico na Fila */
-            <div className="grid grid-cols-3 gap-1 p-1 bg-zinc-200/70 rounded-lg">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100/90 rounded-xl">
               <button
                 id="admin-tab-planner-button"
                 type="button"
                 onClick={() => onSelectTab('planner')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                   currentTab === 'planner'
-                    ? 'bg-white text-zinc-900 shadow-2xs'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'bg-white text-[#003067] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <CalendarDays className="w-3.5 h-3.5" />
@@ -408,18 +450,18 @@ export default function LeftSidebar({
                 id="admin-tab-unscheduled-button"
                 type="button"
                 onClick={() => onSelectTab('unscheduled')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-all cursor-pointer relative ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer relative ${
                   currentTab === 'unscheduled'
-                    ? 'bg-white text-amber-950 shadow-2xs ring-1 ring-amber-400/40'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'bg-white text-amber-950 shadow-xs ring-1 ring-amber-400/40'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Inbox className={`w-3.5 h-3.5 ${unscheduledTasks.length > 0 ? 'text-amber-600' : 'text-zinc-500'}`} />
+                <Inbox className={`w-3.5 h-3.5 ${unscheduledTasks.length > 0 ? 'text-amber-600' : 'text-slate-500'}`} />
                 <span>Fila</span>
                 {unscheduledTasks.length > 0 && (
                   <span
-                    className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.2 min-w-[18px] rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs animate-pulse ring-2 ring-amber-300/80"
-                    title={`${unscheduledTasks.length} tarefas aguardando agendamento no calendário`}
+                    className="inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.2 min-w-[18px] rounded-full bg-amber-500 text-white shadow-xs animate-pulse"
+                    title={`${unscheduledTasks.length} tarefas aguardando agendamento`}
                   >
                     {unscheduledTasks.length}
                   </span>
@@ -430,13 +472,13 @@ export default function LeftSidebar({
                 id="admin-tab-summary-button"
                 type="button"
                 onClick={() => onSelectTab('summary')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                   currentTab === 'summary'
-                    ? 'bg-white text-blue-900 shadow-2xs'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'bg-white text-[#003067] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
+                <TrendingUp className="w-3.5 h-3.5 text-[#004691]" />
                 <span>Resumo</span>
                 {overdueTasks.length > 0 && (
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse ml-0.5" />
@@ -444,19 +486,18 @@ export default function LeftSidebar({
               </button>
             </div>
           ) : (
-            /* Layout Limpo de 2 Abas para Usuário Comum (Membro) */
-            <div className="grid grid-cols-2 gap-1 p-1 bg-zinc-200/70 rounded-lg">
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100/90 rounded-xl">
               <button
                 id="member-tab-planner-button"
                 type="button"
                 onClick={() => onSelectTab('planner')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                   currentTab === 'planner'
-                    ? 'bg-white text-zinc-900 shadow-2xs'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'bg-white text-[#003067] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <CalendarDays className="w-3.5 h-3.5 text-blue-600" />
+                <CalendarDays className="w-3.5 h-3.5 text-[#004691]" />
                 <span>Planner</span>
               </button>
 
@@ -464,16 +505,16 @@ export default function LeftSidebar({
                 id="member-tab-summary-button"
                 type="button"
                 onClick={() => onSelectTab('summary')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-all cursor-pointer relative ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg transition-all cursor-pointer relative ${
                   currentTab === 'summary'
-                    ? 'bg-white text-blue-900 shadow-2xs'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                    ? 'bg-white text-[#003067] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Resumo</span>
                 {myPendingCount > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800">
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-100 text-[#003067]">
                     {myPendingCount}
                   </span>
                 )}
@@ -554,15 +595,28 @@ export default function LeftSidebar({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   Planos & Categorias
                 </span>
-                {selectedBucket && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectBucket(null)}
-                    className="text-[10px] text-blue-600 hover:underline cursor-pointer font-medium"
-                  >
-                    Limpar
-                  </button>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={onOpenTagManagement}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium flex items-center gap-0.5"
+                      title="Gerenciar lista de tags/categorias do Supabase"
+                    >
+                      <Tag className="w-2.5 h-2.5" />
+                      <span>Editar</span>
+                    </button>
+                  )}
+                  {selectedBucket && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectBucket(null)}
+                      className="text-[10px] text-zinc-500 hover:underline cursor-pointer font-medium"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-0.5">
@@ -572,6 +626,12 @@ export default function LeftSidebar({
                     if (t.bucket !== bucket) return false;
                     return isAdmin ? true : t.assignedTo === currentUser.id;
                   }).length;
+
+                  // Encontrar cor customizada da tabela tags_bucket se existir
+                  const foundTag = tagBuckets.find(
+                    (tb) => tb.nome.toLowerCase() === bucket.toLowerCase()
+                  );
+                  const bucketColor = foundTag?.cor;
 
                   return (
                     <button
@@ -587,16 +647,19 @@ export default function LeftSidebar({
                       <div className="flex items-center gap-2 truncate">
                         <span
                           className={`w-2 h-2 rounded-full shrink-0 ${
-                            bucket === 'Financeiro'
-                              ? 'bg-emerald-500'
-                              : bucket === 'Tecnologia'
-                              ? 'bg-blue-500'
-                              : bucket === 'Marketing'
-                              ? 'bg-purple-500'
-                              : bucket === 'Estratégico'
-                              ? 'bg-amber-500'
-                              : 'bg-pink-500'
+                            !bucketColor
+                              ? bucket === 'Financeiro'
+                                ? 'bg-emerald-500'
+                                : bucket === 'Tecnologia'
+                                ? 'bg-blue-500'
+                                : bucket === 'Marketing'
+                                ? 'bg-purple-500'
+                                : bucket === 'Estratégico'
+                                ? 'bg-amber-500'
+                                : 'bg-pink-500'
+                              : ''
                           }`}
+                          style={bucketColor ? { backgroundColor: bucketColor } : undefined}
                         />
                         <span className="truncate">{bucket}</span>
                       </div>
@@ -614,6 +677,33 @@ export default function LeftSidebar({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 px-1 block">
                   Administração
                 </span>
+
+                {/* Botão Gerenciar Tags / Categorias */}
+                <button
+                  id="admin-manage-tags-button"
+                  type="button"
+                  onClick={onOpenTagManagement}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    activeView === 'tag_management'
+                      ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                      : 'bg-blue-50/70 text-blue-700 hover:bg-blue-100/80 border border-blue-200/80'
+                  }`}
+                  title="Gerenciar tags e categorias da tabela tags_bucket no Supabase"
+                >
+                  <div className="flex items-center gap-2">
+                    <Tag className={`w-4 h-4 ${activeView === 'tag_management' ? 'text-white' : 'text-blue-600'}`} />
+                    <span>Gerenciar Tags</span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeView === 'tag_management'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    tags
+                  </span>
+                </button>
 
                 {/* Botão Resumo Executivo Semanal */}
                 <button
@@ -1234,19 +1324,35 @@ export default function LeftSidebar({
           </div>
 
           {isAdmin && (
-            <button
-              id="footer-manage-team-button"
-              type="button"
-              onClick={onOpenTeamManagement}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
-                activeView === 'team_management'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-zinc-400 hover:text-blue-700 hover:bg-zinc-200/70'
-              }`}
-              title="Gerenciar Equipe (perfis)"
-            >
-              <Users className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                id="footer-manage-tags-button"
+                type="button"
+                onClick={onOpenTagManagement}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  activeView === 'tag_management'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-blue-700 hover:bg-zinc-200/70'
+                }`}
+                title="Gerenciar Tags & Categorias (tags_bucket)"
+              >
+                <Tag className="w-4 h-4" />
+              </button>
+
+              <button
+                id="footer-manage-team-button"
+                type="button"
+                onClick={onOpenTeamManagement}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  activeView === 'team_management'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:text-blue-700 hover:bg-zinc-200/70'
+                }`}
+                title="Gerenciar Equipe (perfis)"
+              >
+                <Users className="w-4 h-4" />
+              </button>
+            </div>
           )}
         </div>
       </div>
