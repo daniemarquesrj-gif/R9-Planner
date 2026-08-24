@@ -34,29 +34,28 @@ export const tagService = {
    */
   async fetchTags(): Promise<{ data: TagBucket[]; error: any | null }> {
     try {
-      const { data, error } = await supabase
+      // Timeout de 8 segundos para evitar travamento em caso de indisponibilidade de rede/RLS
+      const queryPromise = supabase
         .from('tags_bucket')
-        .select('*')
-        .order('nome', { ascending: true });
+        .select('*');
+
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) => {
+        setTimeout(() => reject(new Error('Tempo limite excedido ao consultar tags_bucket no Supabase.')), 8000);
+      });
+
+      const result = (await Promise.race([queryPromise, timeoutPromise])) as any;
+      const { data, error } = result;
 
       if (error) {
-        // Tenta fallback com order por 'name' ou 'created_at' caso 'nome' gere erro de coluna
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('tags_bucket')
-          .select('*');
-
-        if (fallbackError) {
-          console.warn('Erro ao consultar tags_bucket:', fallbackError);
-          return { data: [], error: fallbackError };
-        }
-
-        const tags = (fallbackData || []).map(mapDbRowToTag);
-        return { data: tags, error: null };
+        console.warn('Aviso ao consultar tabela tags_bucket:', error);
+        return { data: [], error };
       }
 
       const tags = (data || []).map(mapDbRowToTag);
+      // Ordenação alfabética
+      tags.sort((a, b) => a.nome.localeCompare(b.nome));
       return { data: tags, error: null };
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro de conexão ao buscar tags_bucket:', err);
       return { data: [], error: err };
     }
@@ -85,7 +84,7 @@ export const tagService = {
       let { data, error } = await supabase
         .from('tags_bucket')
         .insert([insertPayload])
-        .select();
+        .select('*');
 
       // Se falhar por nome de coluna incompatível (ex: se o banco estiver em inglês: name, color, description)
       if (error && (error.code === 'PGRST204' || error.message?.includes('column'))) {
@@ -94,12 +93,13 @@ export const tagService = {
           color: payload.cor || '#004691',
           description: payload.descricao?.trim() || '',
         };
-        const res = await supabase.from('tags_bucket').insert([altPayload]).select();
+        const res = await supabase.from('tags_bucket').insert([altPayload]).select('*');
         data = res.data;
         error = res.error;
       }
 
       if (error) {
+        console.error('Erro ao inserir em tags_bucket:', error);
         return { data: null, error };
       }
 
@@ -107,8 +107,18 @@ export const tagService = {
         return { data: mapDbRowToTag(data[0]), error: null };
       }
 
-      return { data: null, error: null };
-    } catch (err) {
+      return {
+        data: {
+          id: String(Date.now()),
+          nome: cleanNome,
+          cor: payload.cor || '#004691',
+          descricao: payload.descricao?.trim() || '',
+          created_at: new Date().toISOString(),
+        },
+        error: null,
+      };
+    } catch (err: any) {
+      console.error('Exceção ao criar tag:', err);
       return { data: null, error: err };
     }
   },

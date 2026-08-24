@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Tag,
   Plus,
@@ -40,7 +40,14 @@ export default function TagManagementView({
   const [tags, setTags] = useState<TagBucket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Ref estável para onTagsUpdated evitando loops de renderização
+  const onTagsUpdatedRef = useRef(onTagsUpdated);
+  useEffect(() => {
+    onTagsUpdatedRef.current = onTagsUpdated;
+  });
 
   // Formulário de Criação
   const [newTagName, setNewTagName] = useState('');
@@ -77,37 +84,47 @@ export default function TagManagementView({
     }, 4500);
   };
 
-  // Carregar todas as tags do Supabase
-  const loadTags = useCallback(
-    async (isInitial = false) => {
-      if (isInitial) setIsLoading(true);
-      else setIsRefreshing(true);
+  // Carregar todas as tags do Supabase com timeout de segurança e garantia incondicional no finally
+  const loadTags = useCallback(async (isInitial = false) => {
+    if (isInitial) setIsLoading(true);
+    else setIsRefreshing(true);
+    setFetchError(null);
 
-      try {
-        const { data, error } = await tagService.fetchTags();
+    // Timeout de segurança para evitar que o loading fique rodando indefinidamente
+    const fallbackTimer = setTimeout(() => {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }, 5000);
 
-        if (error) {
-          showNotification(
-            'Não foi possível consultar a tabela tags_bucket. Verifique a conexão com o Supabase.',
-            'error'
-          );
-          setTags([]);
-          onTagsUpdated?.([]);
-        } else {
-          setTags(data || []);
-          onTagsUpdated?.(data || []);
-        }
-      } catch {
-        showNotification('Erro de rede ao conectar ao Supabase.', 'error');
+    try {
+      const { data, error } = await tagService.fetchTags();
+
+      if (error) {
+        const errMsg =
+          error.message ||
+          (typeof error === 'string' ? error : 'Falha ao consultar a tabela tags_bucket.');
+        setFetchError(errMsg);
+        showNotification(`Erro ao consultar tags_bucket: ${errMsg}`, 'error');
         setTags([]);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        onTagsUpdatedRef.current?.([]);
+      } else {
+        setFetchError(null);
+        setTags(data || []);
+        onTagsUpdatedRef.current?.(data || []);
       }
-    },
-    [onTagsUpdated]
-  );
+    } catch (err: any) {
+      const errMsg = err?.message || 'Erro de rede ao conectar ao Supabase.';
+      setFetchError(errMsg);
+      showNotification(errMsg, 'error');
+      setTags([]);
+    } finally {
+      clearTimeout(fallbackTimer);
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
 
+  // Busca inicial com dependências estritamente vazias [] para rodar apenas na montagem
   useEffect(() => {
     loadTags(true);
 
@@ -130,7 +147,7 @@ export default function TagManagementView({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadTags]);
+  }, []);
 
   // Contagem de tarefas associadas por tag a partir do estado local de tarefas
   const tagUsageMap = useMemo(() => {
@@ -623,6 +640,24 @@ export default function TagManagementView({
                     <p className="text-xs font-semibold text-slate-700">
                       Buscando categorias da tabela tags_bucket...
                     </p>
+                  </div>
+                ) : fetchError ? (
+                  <div className="h-64 flex flex-col items-center justify-center text-center p-5 border border-rose-200 bg-rose-50/50 rounded-2xl">
+                    <AlertCircle className="w-8 h-8 text-rose-500 mb-2" />
+                    <p className="text-xs font-bold text-rose-900">
+                      Não foi possível carregar a tabela tags_bucket
+                    </p>
+                    <p className="text-[11px] text-rose-700 mt-1 max-w-sm">
+                      {fetchError}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => loadTags(true)}
+                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Tentar Novamente</span>
+                    </button>
                   </div>
                 ) : filteredTags.length === 0 ? (
                   <div className="h-64 flex flex-col items-center justify-center text-center p-4 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
