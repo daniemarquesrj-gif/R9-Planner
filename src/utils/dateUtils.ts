@@ -13,44 +13,113 @@ export function parseISO(str: string): Date {
 }
 
 /**
- * Calcula a próxima data com base na regra de recorrência
- * @param currentDateStr Data base em formato YYYY-MM-DD
- * @param recurrence Tipo de recorrência ('Segunda a Sexta', 'Diariamente', 'Semanalmente', 'Mensalmente')
- * @returns Nova data em formato YYYY-MM-DD ou null se não houver recorrência
+ * Calcula a próxima data válida com base na regra de recorrência e formato YYYY-MM-DD
+ * - Diariamente: Próximo dia corrido (+1 dia)
+ * - Segunda a Sexta (Dias Úteis): Se for sexta-feira, pula para segunda-feira; se for sábado ou domingo, avança para segunda-feira; caso contrário, avança 1 dia (+1 dia)
+ * - Semanal: Avança exatamente 7 dias (+7 dias)
+ * - Mensal: Avança 1 mês mantendo o mesmo dia (com proteção para meses com menos dias)
+ *
+ * @param currentDateStr Data base em formato YYYY-MM-DD (ou data_agendada / data_inicio)
+ * @param recurrence Tipo de recorrência (ex: 'Diariamente', 'Segunda a Sexta', 'Semanalmente', 'Mensalmente')
+ * @returns Nova data em formato YYYY-MM-DD ou null se não houver recorrência válida
  */
 export function getNextRecurrenceDate(
-  currentDateStr: string,
-  recurrence: Recurrence
+  currentDateStr: string | null | undefined,
+  recurrence: Recurrence | string | null | undefined
 ): string | null {
-  if (!currentDateStr || recurrence === 'Nenhuma') {
+  if (!currentDateStr || !recurrence) {
     return null;
   }
 
-  const [y, m, d] = currentDateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
+  // Normalizar string de recorrência (remove acentos, espaços extras e minúsculas)
+  const normalizedRec = String(recurrence)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 
-  if (recurrence === 'Segunda a Sexta') {
-    // Adiciona 1 dia
-    date.setDate(date.getDate() + 1);
-    const dayOfWeek = date.getDay(); // 0 = Domingo, 6 = Sábado
-    if (dayOfWeek === 6) {
-      // Se caiu no Sábado, avança 2 dias para Segunda-feira
-      date.setDate(date.getDate() + 2);
+  if (
+    normalizedRec === 'nenhuma' ||
+    normalizedRec === 'none' ||
+    normalizedRec === 'null' ||
+    normalizedRec === 'undefined' ||
+    normalizedRec === ''
+  ) {
+    return null;
+  }
+
+  // Parse estrito e seguro de YYYY-MM-DD sem conversões de fuso horário UTC
+  const rawDate = currentDateStr.split('T')[0].trim();
+  const parts = rawDate.split('-');
+  if (parts.length < 3) {
+    return null;
+  }
+
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10); // 1-12
+  const d = parseInt(parts[2], 10); // 1-31
+
+  if (isNaN(y) || isNaN(m) || isNaN(d)) {
+    return null;
+  }
+
+  const pad = (num: number) => String(num).padStart(2, '0');
+
+  // 1. DIARIAMENTE: Próximo dia corrido
+  if (normalizedRec.includes('diari')) {
+    const baseDate = new Date(y, m - 1, d, 12, 0, 0);
+    baseDate.setDate(baseDate.getDate() + 1);
+    return `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
+  }
+
+  // 2. SEGUNDA A SEXTA (DIAS ÚTEIS): Se for sexta-feira, pula para segunda-feira; caso contrário, avança 1 dia
+  if (
+    normalizedRec.includes('segunda') ||
+    normalizedRec.includes('util') ||
+    normalizedRec.includes('uteis')
+  ) {
+    const baseDate = new Date(y, m - 1, d, 12, 0, 0);
+    const dayOfWeek = baseDate.getDay(); // 0 = Domingo, 1 = Segunda, ..., 5 = Sexta, 6 = Sábado
+
+    if (dayOfWeek === 5) {
+      // Sexta-feira -> Pula para Segunda-feira (+3 dias)
+      baseDate.setDate(baseDate.getDate() + 3);
+    } else if (dayOfWeek === 6) {
+      // Sábado -> Pula para Segunda-feira (+2 dias)
+      baseDate.setDate(baseDate.getDate() + 2);
     } else if (dayOfWeek === 0) {
-      // Se caiu no Domingo, avança 1 dia para Segunda-feira
-      date.setDate(date.getDate() + 1);
+      // Domingo -> Pula para Segunda-feira (+1 dia)
+      baseDate.setDate(baseDate.getDate() + 1);
+    } else {
+      // Segunda a Quinta -> Avança 1 dia corrido
+      baseDate.setDate(baseDate.getDate() + 1);
     }
-  } else if (recurrence === 'Diariamente') {
-    date.setDate(date.getDate() + 1);
-  } else if (recurrence === 'Semanalmente') {
-    date.setDate(date.getDate() + 7);
-  } else if (recurrence === 'Mensalmente') {
-    date.setMonth(date.getMonth() + 1);
-  } else {
-    return null;
+    return `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
   }
 
-  return formatISO(date);
+  // 3. SEMANAL: Avança exatamente 7 dias
+  if (normalizedRec.includes('seman')) {
+    const baseDate = new Date(y, m - 1, d, 12, 0, 0);
+    baseDate.setDate(baseDate.getDate() + 7);
+    return `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
+  }
+
+  // 4. MENSAL: Avança 1 mês mantendo o mesmo dia
+  if (normalizedRec.includes('mensa')) {
+    let targetYear = y;
+    let targetMonth = m + 1; // 1-12
+    if (targetMonth > 12) {
+      targetMonth = 1;
+      targetYear += 1;
+    }
+    // Proteção para o último dia válido do mês alvo (ex: 31 em mês de 30 dias)
+    const maxDaysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
+    const targetDay = Math.min(d, maxDaysInTargetMonth);
+
+    return `${targetYear}-${pad(targetMonth)}-${pad(targetDay)}`;
+  }
+
+  return null;
 }
 
 export const MONTH_NAMES_PT = [

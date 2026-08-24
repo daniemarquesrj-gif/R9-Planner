@@ -32,6 +32,7 @@ import NewTaskModal from './NewTaskModal.tsx';
 import TaskCompletionModal from './TaskCompletionModal.tsx';
 import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
 import TeamManagementView from './TeamManagementView.tsx';
+import ExecutiveWeeklySummary from './ExecutiveWeeklySummary.tsx';
 import { Users } from 'lucide-react';
 
 interface PlannerProps {
@@ -55,8 +56,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   // RBAC: Perfil do usuário atual
   const [userRole, setUserRole] = useState<UserRole>('admin');
 
-  // Tela Ativa: 'planner' (Calendário Semana/Mês) ou 'team_management' (Gerenciamento de Equipe / perfis)
-  const [activeView, setActiveView] = useState<'planner' | 'team_management'>('planner');
+  // Tela Ativa: 'planner' (Calendário Semana/Mês), 'team_management' (Gerenciamento de Equipe) ou 'executive_summary' (Resumo Executivo Semanal)
+  const [activeView, setActiveView] = useState<'planner' | 'team_management' | 'executive_summary'>('planner');
 
   // Sincronizar membros da equipe com a tabela perfis do Supabase
   const handleProfilesUpdated = useCallback((profiles: UserProfile[]) => {
@@ -461,6 +462,19 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
   // Atualizar ação existente (com persistência no Supabase)
   const handleUpdateTask = async (updated: Task) => {
+    const previousTask = tasks.find((t) => t.id === updated.id);
+    const isBecomingCompleted =
+      previousTask &&
+      previousTask.status !== 'concluida' &&
+      updated.status === 'concluida';
+
+    if (isBecomingCompleted) {
+      // Se acabou de ser marcada como concluída pelo modal de detalhes, usa a rota com criação de recorrência
+      await executeCompleteTask(updated.id, updated.customFieldValues);
+      setSelectedTask(updated);
+      return;
+    }
+
     // Atualização otimista
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setSelectedTask(updated);
@@ -625,32 +639,55 @@ export default function Planner({ user, onLogout }: PlannerProps) {
                 <span>Voltar ao Planner</span>
               </button>
               <span className="text-xs font-semibold text-zinc-700 hidden sm:inline">
-                Gerenciamento de Equipe & Permissões
+                {activeView === 'executive_summary'
+                  ? 'Resumo Executivo Semanal'
+                  : 'Gerenciamento de Equipe & Permissões'}
               </span>
             </div>
           )}
         </div>
 
-        {/* Direita: Status Supabase, Atalho Equipe (Admin), Perfil RBAC e Logout */}
+        {/* Direita: Status Supabase, Atalhos Executivos (Admin), Perfil RBAC e Logout */}
         <div className="flex items-center gap-2">
-          {/* Botão de Alternar Gerenciamento de Equipe (Exclusivo Administrador) */}
+          {/* Botões de Atalhos Exclusivos do Administrador */}
           {userRole === 'admin' && (
-            <button
-              id="header-team-management-btn"
-              type="button"
-              onClick={() =>
-                setActiveView((prev) => (prev === 'team_management' ? 'planner' : 'team_management'))
-              }
-              className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                activeView === 'team_management'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
-                  : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
-              }`}
-              title="Gerenciar usuários e permissões da equipe (tabela perfis)"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>{activeView === 'team_management' ? 'Ver Calendário' : 'Gerenciar Equipe'}</span>
-            </button>
+            <div className="hidden md:flex items-center gap-1.5">
+              {/* Atalho Resumo Executivo Semanal */}
+              <button
+                id="header-executive-summary-btn"
+                type="button"
+                onClick={() =>
+                  setActiveView((prev) => (prev === 'executive_summary' ? 'planner' : 'executive_summary'))
+                }
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                  activeView === 'executive_summary'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
+                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
+                }`}
+                title="Abrir o Resumo Executivo Semanal e métricas de formulários"
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>{activeView === 'executive_summary' ? 'Ver Calendário' : 'Resumo Semanal'}</span>
+              </button>
+
+              {/* Atalho Gerenciar Equipe */}
+              <button
+                id="header-team-management-btn"
+                type="button"
+                onClick={() =>
+                  setActiveView((prev) => (prev === 'team_management' ? 'planner' : 'team_management'))
+                }
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                  activeView === 'team_management'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
+                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
+                }`}
+                title="Gerenciar usuários e permissões da equipe (tabela perfis)"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>{activeView === 'team_management' ? 'Ver Calendário' : 'Gerenciar Equipe'}</span>
+              </button>
+            </div>
           )}
 
           {/* Indicador de Conexão Supabase / Botão de Sincronizar */}
@@ -767,11 +804,21 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           }}
           activeView={activeView}
           onOpenTeamManagement={() => setActiveView('team_management')}
+          onOpenExecutiveSummary={() => setActiveView('executive_summary')}
         />
 
-        {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) OU Tela de Gerenciamento de Equipe */}
+        {/* Grade Principal do Calendário (Centro: Visão Semana / Mês) OU Tela de Gerenciamento de Equipe OU Resumo Executivo */}
         <main className="flex-1 min-h-0 overflow-hidden relative bg-[#f8f9fa]/80 flex flex-col">
-          {activeView === 'team_management' && userRole === 'admin' ? (
+          {activeView === 'executive_summary' && userRole === 'admin' ? (
+            <ExecutiveWeeklySummary
+              tasks={tasks}
+              teamMembers={teamMembers}
+              todayISO={todayISO}
+              todayDate={todayDate}
+              onBackToPlanner={() => setActiveView('planner')}
+              onTaskClick={handleTaskClick}
+            />
+          ) : activeView === 'team_management' && userRole === 'admin' ? (
             <TeamManagementView
               currentUserEmail={user?.email}
               onBackToPlanner={() => setActiveView('planner')}

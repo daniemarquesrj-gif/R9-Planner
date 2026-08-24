@@ -1,6 +1,6 @@
 import { supabase } from '../supabase.js';
 import { Task, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment } from '../types.ts';
-import { getNextRecurrenceDate } from '../utils/dateUtils.ts';
+import { getNextRecurrenceDate, formatISO } from '../utils/dateUtils.ts';
 
 function isValidUUID(val?: string | null): boolean {
   if (!val) return false;
@@ -206,7 +206,9 @@ export const taskService = {
 
   /**
    * Atualiza o status da tarefa e campos customizados preenchidos.
-   * Se a tarefa for concluída e possuir recorrência, insere a próxima ocorrência automaticamente no Supabase.
+   * Quando o usuário marcar uma tarefa como 'concluida' com o campo recorrencia preenchido
+   * (diferente de 'Nenhuma' ou null), calcula a próxima data válida e executa
+   * supabase.from('tarefas').insert({...}) criando uma nova tarefa com status 'pendente'.
    */
   async updateTaskStatus(
     task: Task,
@@ -230,7 +232,7 @@ export const taskService = {
     let updateError: any = null;
 
     try {
-      // 1. Atualizar registro atual no Supabase
+      // 1. Atualizar registro atual no Supabase para o novo status
       const payload: Record<string, any> = {
         status: newStatus,
         campos_customizados: {
@@ -248,33 +250,37 @@ export const taskService = {
         updateError = error;
       }
 
-      // 2. Se a tarefa foi concluída e tem recorrência configurada e data agendada
-      if (
-        newStatus === 'concluida' &&
+      // 2. Verificação de Recorrência ao marcar como 'concluida'
+      const hasRecurrence =
         task.recurrence &&
         task.recurrence !== 'Nenhuma' &&
-        task.scheduledDate
-      ) {
-        const nextDate = getNextRecurrenceDate(task.scheduledDate, task.recurrence);
+        task.recurrence.trim() !== '';
+
+      if (newStatus === 'concluida' && hasRecurrence) {
+        // Base de cálculo: data_agendada atual (ou data_inicio / hoje)
+        const baseDate = task.scheduledDate || task.startDate || formatISO(new Date());
+        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence);
 
         if (nextDate) {
+          // Criação da Nova Instância no Supabase
           const recurrentPayload = mapTaskToDbPayload({
             title: task.title,
-            description: task.description,
-            priority: task.priority,
+            description: task.description || '',
+            priority: task.priority || 'Alta',
             recurrence: task.recurrence,
-            bucket: task.bucket,
-            assignedTo: task.assignedTo,
+            bucket: task.bucket || 'Operacional',
+            assignedTo: task.assignedTo || null,
             startDate: nextDate,
             endDate: nextDate,
             scheduledDate: nextDate,
             status: 'pendente',
-            tags: task.tags,
+            tags: task.tags || [],
             customFields: task.customFields || [],
-            customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
+            customFieldValues: [], // Resetar valores para a nova ocorrência
+            comments: [], // Iniciar sem comentários históricos
           });
 
-          // Inserir nova ocorrência no Supabase
+          // Inserir nova tarefa no Supabase (status: 'pendente')
           const { data: recurrentData, error: recurrentError } = await supabase
             .from('tarefas')
             .insert([recurrentPayload])
@@ -282,6 +288,8 @@ export const taskService = {
 
           if (!recurrentError && recurrentData && recurrentData.length > 0) {
             nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
+          } else if (recurrentError) {
+            console.error('Erro ao criar próxima instância recorrente no Supabase:', recurrentError);
           }
         }
       }
@@ -292,12 +300,27 @@ export const taskService = {
         error: updateError,
       };
     } catch (err) {
+      console.error('Erro ao atualizar status da tarefa:', err);
       return {
         updatedTask,
         nextRecurrentTask: null,
         error: err,
       };
     }
+  },
+
+  /**
+   * Função explícita para marcar uma tarefa como 'concluida', aplicando preenchimento e gerando recorrência automática.
+   */
+  async completeTask(
+    task: Task,
+    filledValues?: CustomFieldValue[]
+  ): Promise<{
+    updatedTask: Task;
+    nextRecurrentTask: Task | null;
+    error: any | null;
+  }> {
+    return this.updateTaskStatus(task, 'concluida', filledValues);
   },
 
   /**

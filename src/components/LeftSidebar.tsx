@@ -61,9 +61,10 @@ interface LeftSidebarProps {
   // Aba Ativa
   activeTab: SidebarTab;
   onSelectTab: (tab: SidebarTab) => void;
-  // Gestão de Equipe (Exclusivo Administrador)
-  activeView?: 'planner' | 'team_management';
+  // Gestão de Equipe e Resumo Executivo (Exclusivo Administrador)
+  activeView?: 'planner' | 'team_management' | 'executive_summary';
   onOpenTeamManagement?: () => void;
+  onOpenExecutiveSummary?: () => void;
 }
 
 export default function LeftSidebar({
@@ -90,6 +91,7 @@ export default function LeftSidebar({
   onSelectTab,
   activeView = 'planner',
   onOpenTeamManagement,
+  onOpenExecutiveSummary,
 }: LeftSidebarProps) {
   // Estado interno para busca na fila (Admin)
   const [searchTerm, setSearchTerm] = useState('');
@@ -261,6 +263,24 @@ export default function LeftSidebar({
                 {overdueTasks.length > 0 && (
                   <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
                 )}
+              </button>
+
+              {/* Botão Colapsado: Resumo Executivo Semanal (Exclusivo Admin) */}
+              <button
+                id="collapsed-executive-summary-button"
+                type="button"
+                onClick={() => {
+                  onOpenExecutiveSummary?.();
+                  onToggleCollapse();
+                }}
+                className={`p-2 rounded-lg relative transition-colors cursor-pointer ${
+                  activeView === 'executive_summary'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'text-zinc-400 hover:text-blue-700 hover:bg-blue-50'
+                }`}
+                title="Resumo Executivo Semanal (Painel Gerencial)"
+              >
+                <CalendarDays className="w-4 h-4" />
               </button>
 
               {/* Botão Colapsado: Gerenciar Equipe (Exclusivo Admin) */}
@@ -594,6 +614,35 @@ export default function LeftSidebar({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 px-1 block">
                   Administração
                 </span>
+
+                {/* Botão Resumo Executivo Semanal */}
+                <button
+                  id="admin-executive-summary-button"
+                  type="button"
+                  onClick={onOpenExecutiveSummary}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    activeView === 'executive_summary'
+                      ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                      : 'bg-blue-50/70 text-blue-700 hover:bg-blue-100/80 border border-blue-200/80'
+                  }`}
+                  title="Acessar o Resumo Executivo Semanal e métricas de formulários"
+                >
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className={`w-4 h-4 ${activeView === 'executive_summary' ? 'text-white' : 'text-blue-600'}`} />
+                    <span>Resumo Semanal</span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeView === 'executive_summary'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    gerencial
+                  </span>
+                </button>
+
+                {/* Botão Gerenciar Equipe */}
                 <button
                   id="admin-manage-team-button"
                   type="button"
@@ -915,6 +964,19 @@ export default function LeftSidebar({
                     </div>
                   </div>
                 )}
+
+                {/* Botão de Acesso Direto ao Resumo Executivo Semanal */}
+                <div className="pt-2 border-t border-zinc-100">
+                  <button
+                    id="admin-summary-open-executive-btn"
+                    type="button"
+                    onClick={onOpenExecutiveSummary}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>Abrir Resumo Executivo Semanal</span>
+                  </button>
+                </div>
               </>
             ) : (
               /* --- RESUMO DO MEMBRO (MINHAS AÇÕES & MÉTRICAS PESSOAIS) --- */
