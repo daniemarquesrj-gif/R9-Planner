@@ -70,36 +70,32 @@ export const tagService = {
     descricao?: string;
   }): Promise<{ data: TagBucket | null; error: any | null }> {
     try {
-      const cleanNome = payload.nome.trim();
-      const insertPayload: Record<string, any> = {
-        nome: cleanNome,
-        cor: payload.cor || '#004691',
-      };
-
-      if (payload.descricao !== undefined) {
-        insertPayload.descricao = payload.descricao.trim();
+      const cleanNome = payload.nome?.trim();
+      if (!cleanNome) {
+        return {
+          data: null,
+          error: new Error('O campo nome não pode ser nulo ou vazio.'),
+        };
       }
 
-      // Tenta inserir na tabela tags_bucket
-      let { data, error } = await supabase
+      const nomeTag = cleanNome;
+      const corSelecionada = payload.cor || '#004691';
+      const descricao = payload.descricao ? payload.descricao.trim() : '';
+
+      // Payload estrito enviado para o Supabase
+      const { data, error } = await supabase
         .from('tags_bucket')
-        .insert([insertPayload])
+        .insert([
+          {
+            nome: nomeTag,
+            color: corSelecionada,
+            description: descricao,
+          },
+        ])
         .select('*');
 
-      // Se falhar por nome de coluna incompatível (ex: se o banco estiver em inglês: name, color, description)
-      if (error && (error.code === 'PGRST204' || error.message?.includes('column'))) {
-        const altPayload: Record<string, any> = {
-          name: cleanNome,
-          color: payload.cor || '#004691',
-          description: payload.descricao?.trim() || '',
-        };
-        const res = await supabase.from('tags_bucket').insert([altPayload]).select('*');
-        data = res.data;
-        error = res.error;
-      }
-
       if (error) {
-        console.error('Erro ao inserir em tags_bucket:', error);
+        console.error('Erro ao inserir na tabela tags_bucket:', error);
         return { data: null, error };
       }
 
@@ -110,9 +106,9 @@ export const tagService = {
       return {
         data: {
           id: String(Date.now()),
-          nome: cleanNome,
-          cor: payload.cor || '#004691',
-          descricao: payload.descricao?.trim() || '',
+          nome: nomeTag,
+          cor: corSelecionada,
+          descricao: descricao,
           created_at: new Date().toISOString(),
         },
         error: null,
@@ -133,26 +129,26 @@ export const tagService = {
     try {
       const payload: Record<string, any> = {};
       if (updates.nome !== undefined) payload.nome = updates.nome.trim();
-      if (updates.cor !== undefined) payload.cor = updates.cor;
-      if (updates.descricao !== undefined) payload.descricao = updates.descricao.trim();
+      if (updates.cor !== undefined) payload.color = updates.cor;
+      if (updates.descricao !== undefined) payload.description = updates.descricao.trim();
 
       let { data, error } = await supabase
         .from('tags_bucket')
         .update(payload)
         .eq('id', id)
-        .select();
+        .select('*');
 
       if (error && (error.code === 'PGRST204' || error.message?.includes('column'))) {
         const altPayload: Record<string, any> = {};
-        if (updates.nome !== undefined) altPayload.name = updates.nome.trim();
-        if (updates.cor !== undefined) altPayload.color = updates.cor;
-        if (updates.descricao !== undefined) altPayload.description = updates.descricao.trim();
+        if (updates.nome !== undefined) altPayload.nome = updates.nome.trim();
+        if (updates.cor !== undefined) altPayload.cor = updates.cor;
+        if (updates.descricao !== undefined) altPayload.descricao = updates.descricao.trim();
 
         const res = await supabase
           .from('tags_bucket')
           .update(altPayload)
           .eq('id', id)
-          .select();
+          .select('*');
         data = res.data;
         error = res.error;
       }
