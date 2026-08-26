@@ -136,10 +136,24 @@ export default function LeftSidebar({
   const highToday = todayTasks.filter((t) => t.priority === 'Alta' && t.status !== 'concluida').length;
   const mediumToday = todayTasks.filter((t) => t.priority === 'Média' && t.status !== 'concluida').length;
   const lowToday = todayTasks.filter((t) => t.priority === 'Baixa' && t.status !== 'concluida').length;
-  const assignedMemberIds = Array.from(new Set(todayTasks.map((t) => t.assignedTo).filter(Boolean)));
+  const assignedMemberIds = Array.from(
+    new Set(
+      todayTasks.flatMap((t) =>
+        t.assignedToIds && t.assignedToIds.length > 0
+          ? t.assignedToIds
+          : t.assignedTo
+          ? [t.assignedTo]
+          : []
+      )
+    )
+  );
 
   // --- DADOS PARA MEMBRO: MINHAS AÇÕES & MÉTRICAS PESSOAIS ---
-  const myTasks = tasks.filter((t) => t.assignedTo === currentUser.id);
+  const isUserTask = (t: Task) =>
+    (t.assignedToIds && t.assignedToIds.includes(currentUser.id)) ||
+    t.assignedTo === currentUser.id;
+
+  const myTasks = tasks.filter(isUserTask);
   const myTodayTasks = myTasks.filter((t) => t.scheduledDate === todayISO);
   const myCompletedCount = myTasks.filter((t) => t.status === 'concluida').length;
   const myPendingCount = myTasks.filter((t) => t.status !== 'concluida').length;
@@ -413,18 +427,6 @@ export default function LeftSidebar({
           </button>
         </div>
 
-        {/* Botão de Criar Nova Ação (Exclusivo para Administrador) */}
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={onOpenNewTaskModal}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-[#003067] hover:bg-[#00224b] text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ New Action</span>
-          </button>
-        )}
-
         {/* CONTROLE DE ABAS:
             - ADMINISTRADOR: 3 Abas (Planner | Fila | Resumo)
             - USUÁRIO COMUM (MEMBRO): 2 Abas (Planner | Resumo)
@@ -595,28 +597,15 @@ export default function LeftSidebar({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   Planos & Categorias
                 </span>
-                <div className="flex items-center gap-1.5">
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={onOpenTagManagement}
-                      className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium flex items-center gap-0.5"
-                      title="Gerenciar lista de tags/categorias do Supabase"
-                    >
-                      <Tag className="w-2.5 h-2.5" />
-                      <span>Editar</span>
-                    </button>
-                  )}
-                  {selectedBucket && (
-                    <button
-                      type="button"
-                      onClick={() => onSelectBucket(null)}
-                      className="text-[10px] text-zinc-500 hover:underline cursor-pointer font-medium"
-                    >
-                      Limpar
-                    </button>
-                  )}
-                </div>
+                {selectedBucket && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectBucket(null)}
+                    className="text-[10px] text-zinc-500 hover:underline cursor-pointer font-medium"
+                  >
+                    Limpar
+                  </button>
+                )}
               </div>
 
               <div className="space-y-0.5">

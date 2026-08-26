@@ -46,7 +46,9 @@ export default function TaskCard({
     !isConcluida
   );
 
-  const assignedMember = teamMembers.find((m) => m.id === task.assignedTo);
+  const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
+  const assignedMembers = teamMembers.filter((m) => assigneeIds.includes(m.id));
+  const primaryMember = assignedMembers[0] || teamMembers.find((m) => m.id === task.assignedTo);
 
   // Borda lateral para prioridade ou destaque visual suave
   const getCardBorderClass = () => {
@@ -223,21 +225,35 @@ export default function TaskCard({
 
       {/* Rodapé: Avatar do Responsável + Indicadores */}
       <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between pl-0.5 text-slate-500">
-        {/* Responsável */}
-        {assignedMember ? (
+        {/* Responsáveis da Ação */}
+        {assignedMembers.length > 0 ? (
           <div
             className="flex items-center gap-1.5 min-w-0"
-            title={`Responsável: ${assignedMember.name} (${
-              assignedMember.role === 'admin' ? 'Admin' : 'Membro'
-            })`}
+            title={`Responsáveis: ${assignedMembers.map((m) => `${m.name} (${m.role === 'admin' ? 'Admin' : 'Membro'})`).join(', ')}`}
           >
-            <div
-              className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 bg-[#003067] text-white shadow-2xs`}
-            >
-              {assignedMember.initials}
+            {/* Stack de Avatares Sobrepostos */}
+            <div className="flex items-center -space-x-1.5 shrink-0">
+              {assignedMembers.slice(0, 3).map((m) => (
+                <div
+                  key={m.id}
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ring-1.5 ring-white text-white shadow-2xs shrink-0"
+                  style={{ backgroundColor: m.color || '#004691' }}
+                  title={m.name}
+                >
+                  {m.avatar || m.name.charAt(0)}
+                </div>
+              ))}
+              {assignedMembers.length > 3 && (
+                <div className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ring-1.5 ring-white bg-slate-700 text-white shadow-2xs shrink-0">
+                  +{assignedMembers.length - 3}
+                </div>
+              )}
             </div>
-            <span className="text-[11px] text-slate-600 truncate max-w-[100px] font-normal">
-              {assignedMember.email ? assignedMember.email.split('@')[0] : assignedMember.name}
+
+            <span className="text-[11px] text-slate-600 truncate max-w-[110px] font-normal">
+              {assignedMembers.length === 1
+                ? (primaryMember?.name || primaryMember?.email?.split('@')[0])
+                : `${primaryMember?.name?.split(' ')[0]} +${assignedMembers.length - 1}`}
             </span>
           </div>
         ) : (

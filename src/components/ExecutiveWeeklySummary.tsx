@@ -265,6 +265,9 @@ export default function ExecutiveWeeklySummary({
       // Membros responsáveis envolvidos
       const memberIdsSet = new Set<string>();
       instances.forEach((t) => {
+        if (t.assignedToIds && Array.isArray(t.assignedToIds)) {
+          t.assignedToIds.forEach((id) => memberIdsSet.add(id));
+        }
         if (t.assignedTo) memberIdsSet.add(t.assignedTo);
       });
 
@@ -516,7 +519,15 @@ export default function ExecutiveWeeklySummary({
     });
 
     const activeMemberIds = Array.from(
-      new Set(weekTasks.map((t) => t.assignedTo).filter(Boolean))
+      new Set(
+        weekTasks.flatMap((t) =>
+          t.assignedToIds && t.assignedToIds.length > 0
+            ? t.assignedToIds
+            : t.assignedTo
+            ? [t.assignedTo]
+            : []
+        )
+      )
     );
 
     return {

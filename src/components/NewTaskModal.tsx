@@ -39,7 +39,7 @@ export default function NewTaskModal({
   const [priority, setPriority] = useState<Priority>('Alta');
   const [recurrence, setRecurrence] = useState<Recurrence>('Nenhuma');
   const [bucket, setBucket] = useState(initialBucket);
-  const [assignedTo, setAssignedTo] = useState<string>('');
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [scheduleType, setScheduleType] = useState<'scheduled' | 'queue'>(
@@ -49,6 +49,12 @@ export default function NewTaskModal({
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
+
+  const toggleAssignee = (memberId: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    );
+  };
 
   // Campos Customizáveis / Formulário Obrigatório por Ação
   const [customFields, setCustomFields] = useState<CustomFormField[]>([]);
@@ -127,7 +133,8 @@ export default function NewTaskModal({
       priority,
       recurrence,
       bucket,
-      assignedTo: assignedTo || null,
+      assignedTo: selectedAssignees[0] || null,
+      assignedToIds: selectedAssignees,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       scheduledDate: scheduleType === 'scheduled' && scheduledDate ? scheduledDate : null,
@@ -243,41 +250,82 @@ export default function NewTaskModal({
             </div>
           </div>
 
-          {/* Linha: Bucket + Responsável */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Bucket / Categoria
+          {/* Bucket / Categoria */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Bucket / Categoria
+            </label>
+            <select
+              value={bucket}
+              onChange={(e) => setBucket(e.target.value)}
+              className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600 font-medium"
+            >
+              {buckets.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Atribuir Múltiplos Responsáveis */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-gray-700">
+                Responsáveis da Ação {selectedAssignees.length > 0 && `(${selectedAssignees.length} selecionado${selectedAssignees.length > 1 ? 's' : ''})`}
               </label>
-              <select
-                value={bucket}
-                onChange={(e) => setBucket(e.target.value)}
-                className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600 font-medium"
-              >
-                {buckets.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+              {selectedAssignees.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedAssignees([])}
+                  className="text-[11px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                >
+                  Limpar seleção
+                </button>
+              )}
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Atribuir Responsável
-              </label>
-              <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
-              >
-                <option value="">Não atribuído</option>
-                {teamMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.role === 'admin' ? 'Admin' : 'Membro'})
-                  </option>
-                ))}
-              </select>
+            <div className="p-2.5 bg-gray-50/80 border border-gray-200 rounded-lg max-h-36 overflow-y-auto space-y-1.5">
+              {teamMembers.map((m) => {
+                const isSelected = selectedAssignees.includes(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleAssignee(m.id)}
+                    className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50 border border-blue-200 text-blue-900 font-semibold shadow-2xs'
+                        : 'bg-white border border-gray-200/80 text-gray-700 hover:bg-gray-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 shadow-2xs"
+                        style={{ backgroundColor: m.color || '#004691' }}
+                      >
+                        {m.avatar || m.name.charAt(0)}
+                      </div>
+                      <div className="truncate">
+                        <span>{m.name}</span>
+                        <span className="text-[10px] font-normal text-gray-500 ml-1.5">
+                          ({m.role === 'admin' ? 'Admin' : 'Membro'})
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0 transition-colors ${
+                        isSelected
+                          ? 'bg-[#004691] border-[#004691] text-white'
+                          : 'border-gray-300 bg-white'
+                      }`}
+                    >
+                      {isSelected && '✓'}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

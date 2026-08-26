@@ -139,7 +139,8 @@ export default function MonthlyView({
                     task.scheduledDate < todayISO &&
                     !isConcluida
                   );
-                  const assignee = teamMembers.find((m) => m.id === task.assignedTo);
+                  const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
+                  const assignedMembers = teamMembers.filter((m) => assigneeIds.includes(m.id));
 
                   return (
                     <div
@@ -177,12 +178,25 @@ export default function MonthlyView({
                         </span>
                       </div>
 
-                      {assignee && (
+                      {assignedMembers.length > 0 && (
                         <div
-                          className={`w-4 h-4 shrink-0 rounded-full flex items-center justify-center text-[8px] font-bold ${assignee.avatarColor}`}
-                          title={assignee.name}
+                          className="flex items-center -space-x-1 shrink-0"
+                          title={assignedMembers.map((m) => m.name).join(', ')}
                         >
-                          {assignee.initials}
+                          {assignedMembers.slice(0, 2).map((m) => (
+                            <div
+                              key={m.id}
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white ring-1 ring-white shadow-2xs shrink-0"
+                              style={{ backgroundColor: m.color || '#004691' }}
+                            >
+                              {m.avatar || m.name.charAt(0)}
+                            </div>
+                          ))}
+                          {assignedMembers.length > 2 && (
+                            <div className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white bg-slate-700 ring-1 ring-white shadow-2xs shrink-0">
+                              +{assignedMembers.length - 2}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

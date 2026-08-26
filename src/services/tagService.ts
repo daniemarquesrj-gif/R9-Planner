@@ -19,11 +19,15 @@ export const PRESET_TAG_COLORS = [
  * Normaliza uma linha retornada pelo Supabase para o tipo TagBucket
  */
 export function mapDbRowToTag(row: any): TagBucket {
+  const resolvedColor = row.color ?? row.cor ?? row.tag_color ?? '#004691';
+  const resolvedDesc = row.description ?? row.descricao ?? '';
   return {
     id: String(row.id),
     nome: row.nome ?? row.name ?? row.tag ?? row.bucket ?? row.titulo ?? 'Sem categoria',
-    cor: row.cor ?? row.color ?? '#004691',
-    descricao: row.descricao ?? row.description ?? '',
+    cor: resolvedColor,
+    color: resolvedColor,
+    descricao: resolvedDesc,
+    description: resolvedDesc,
     created_at: row.created_at ?? row.createdAt,
   };
 }
@@ -67,7 +71,9 @@ export const tagService = {
   async createTag(payload: {
     nome: string;
     cor?: string;
+    color?: string;
     descricao?: string;
+    description?: string;
   }): Promise<{ data: TagBucket | null; error: any | null }> {
     try {
       const cleanNome = payload.nome?.trim();
@@ -79,11 +85,11 @@ export const tagService = {
       }
 
       const nomeTag = cleanNome;
-      const corSelecionada = payload.cor || '#004691';
-      const descricao = payload.descricao ? payload.descricao.trim() : '';
+      const corSelecionada = payload.color || payload.cor || '#004691';
+      const descricao = (payload.description || payload.descricao || '').trim();
 
       // Payload estrito enviado para o Supabase
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('tags_bucket')
         .insert([
           {
@@ -93,6 +99,22 @@ export const tagService = {
           },
         ])
         .select('*');
+
+      // Se houver incompatibilidade de nome de coluna no banco (ex: coluna em português), faz fallback seguro
+      if (error && (error.code === 'PGRST204' || error.message?.includes('column'))) {
+        const altRes = await supabase
+          .from('tags_bucket')
+          .insert([
+            {
+              nome: nomeTag,
+              cor: corSelecionada,
+              descricao: descricao,
+            },
+          ])
+          .select('*');
+        data = altRes.data;
+        error = altRes.error;
+      }
 
       if (error) {
         console.error('Erro ao inserir na tabela tags_bucket:', error);
@@ -108,7 +130,9 @@ export const tagService = {
           id: String(Date.now()),
           nome: nomeTag,
           cor: corSelecionada,
+          color: corSelecionada,
           descricao: descricao,
+          description: descricao,
           created_at: new Date().toISOString(),
         },
         error: null,

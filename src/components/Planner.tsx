@@ -402,12 +402,16 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
   // Contagens para a barra de navegação
   const navCounts = useMemo(() => {
+    const isUserTask = (t: Task) =>
+      (t.assignedToIds && t.assignedToIds.includes(currentUser.id)) ||
+      t.assignedTo === currentUser.id;
+
     const myDayCount = tasks.filter((t) => {
       const isToday = t.scheduledDate === todayISO;
-      return userRole === 'admin' ? isToday : isToday && t.assignedTo === currentUser.id;
+      return userRole === 'admin' ? isToday : isToday && isUserTask(t);
     }).length;
 
-    const myTasksCount = tasks.filter((t) => t.assignedTo === currentUser.id).length;
+    const myTasksCount = tasks.filter(isUserTask).length;
     const allCount = tasks.length;
     const urgentCount = tasks.filter((t) => t.priority === 'Urgente' || t.priority === 'Alta').length;
     const unscheduledCount = tasks.filter((t) => !t.scheduledDate).length;
@@ -448,7 +452,10 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
       // Filtro por Navegação (Meu Dia / Minhas Tarefas / Urgente / Planejador Geral)
       if (navFilter === 'my_tasks') {
-        if (task.assignedTo !== currentUser.id) return false;
+        const isAssigned =
+          (task.assignedToIds && task.assignedToIds.includes(currentUser.id)) ||
+          task.assignedTo === currentUser.id;
+        if (!isAssigned) return false;
       } else if (navFilter === 'my_day') {
         if (task.scheduledDate !== todayISO) return false;
       } else if (navFilter === 'urgent') {
@@ -817,101 +824,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
           )}
         </div>
 
-        {/* Direita: Status Supabase, Atalhos Executivos (Admin), Perfil RBAC e Logout */}
+        {/* Direita: Perfil RBAC e Logout */}
         <div className="flex items-center gap-2">
-          {/* Botões de Atalhos Exclusivos do Administrador */}
-          {userRole === 'admin' && (
-            <div className="hidden md:flex items-center gap-1.5">
-              {/* Atalho Gerenciar Tags / Categorias */}
-              <button
-                id="header-tag-management-btn"
-                type="button"
-                onClick={() =>
-                  setActiveView((prev) => (prev === 'tag_management' ? 'planner' : 'tag_management'))
-                }
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                  activeView === 'tag_management'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
-                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
-                }`}
-                title="Gerenciar tags e categorias da tabela tags_bucket no Supabase"
-              >
-                <Tag className="w-3.5 h-3.5" />
-                <span>{activeView === 'tag_management' ? 'Ver Calendário' : 'Gerenciar Tags'}</span>
-              </button>
-
-              {/* Atalho Resumo Executivo Semanal */}
-              <button
-                id="header-executive-summary-btn"
-                type="button"
-                onClick={() =>
-                  setActiveView((prev) => (prev === 'executive_summary' ? 'planner' : 'executive_summary'))
-                }
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                  activeView === 'executive_summary'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
-                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
-                }`}
-                title="Abrir o Resumo Executivo Semanal e métricas de formulários"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>{activeView === 'executive_summary' ? 'Ver Calendário' : 'Resumo Semanal'}</span>
-              </button>
-
-              {/* Atalho Gerenciar Equipe */}
-              <button
-                id="header-team-management-btn"
-                type="button"
-                onClick={() =>
-                  setActiveView((prev) => (prev === 'team_management' ? 'planner' : 'team_management'))
-                }
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                  activeView === 'team_management'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-semibold'
-                    : 'bg-zinc-50 text-zinc-700 border-zinc-200/80 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200'
-                }`}
-                title="Gerenciar usuários e permissões da equipe (tabela perfis)"
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>{activeView === 'team_management' ? 'Ver Calendário' : 'Gerenciar Equipe'}</span>
-              </button>
-            </div>
-          )}
-
-          {/* Indicador de Conexão Supabase / Botão de Sincronizar */}
-          <button
-            id="supabase-sync-status-button"
-            type="button"
-            onClick={() => loadTasksFromSupabase(false)}
-            disabled={isSyncing}
-            className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-              dbConnected === true
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/70'
-                : dbConnected === false
-                ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100/70'
-                : 'bg-zinc-50 text-zinc-600 border-zinc-200'
-            }`}
-            title="Sincronizar tarefas com o Supabase"
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isSyncing
-                  ? 'bg-blue-500 animate-spin'
-                  : dbConnected === true
-                  ? 'bg-emerald-500'
-                  : 'bg-amber-500 animate-pulse'
-              }`}
-            />
-            <span className="text-[11px] font-medium">
-              {isSyncing
-                ? 'Sincronizando...'
-                : dbConnected === true
-                ? 'Supabase Ativo'
-                : 'Supabase'}
-            </span>
-            <RefreshCw className={`w-3 h-3 text-zinc-400 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
-          </button>
-
           {/* Seletor Exclusivo de Modo de Visualização para Administrador (Renderizado APENAS se funcao === 'admin' na tabela perfis) */}
           {isRealAdmin && (
             <div

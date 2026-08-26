@@ -275,6 +275,37 @@ export default function TaskDetailModal({
                     {task.description}
                   </p>
                 )}
+
+                {/* Exibição dos Responsáveis Designados */}
+                {(() => {
+                  const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
+                  const assignedMembers = teamMembers.filter((m) => assigneeIds.includes(m.id));
+                  if (assignedMembers.length === 0) return null;
+
+                  return (
+                    <div className="mt-3 p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                        Responsáveis Designados ({assignedMembers.length})
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {assignedMembers.map((m) => (
+                          <div
+                            key={m.id}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-white border border-slate-200 shadow-2xs text-xs font-semibold text-slate-800"
+                          >
+                            <div
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                              style={{ backgroundColor: m.color || '#004691' }}
+                            >
+                              {m.avatar || m.name.charAt(0)}
+                            </div>
+                            <span className="text-xs">{m.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Bloco de Status e Prioridade (Os únicos dois parâmetros exibidos) */}
@@ -541,23 +572,82 @@ export default function TaskDetailModal({
                   </select>
                 </div>
 
-                {/* Atribuição de Membro */}
+                {/* Atribuição de Múltiplos Responsáveis da Equipe */}
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Responsável da Equipe
-                  </label>
-                  <select
-                    value={task.assignedTo || ''}
-                    onChange={(e) => handleFieldChange('assignedTo', e.target.value || null)}
-                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
-                  >
-                    <option value="">Não atribuído</option>
-                    {teamMembers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.role === 'admin' ? 'Admin' : 'Membro'}) - {m.email}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-gray-700">
+                      Responsáveis da Equipe {(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 0 && `(${ (task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length } atribuído${(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 1 ? 's' : ''})`}
+                    </label>
+                    {(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateTask({
+                            ...task,
+                            assignedTo: null,
+                            assignedToIds: [],
+                          });
+                        }}
+                        className="text-[11px] text-rose-600 hover:text-rose-800 font-medium cursor-pointer"
+                      >
+                        Desmarcar todos
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-2.5 bg-gray-50/80 border border-gray-200 rounded-lg max-h-40 overflow-y-auto space-y-1.5">
+                    {teamMembers.map((m) => {
+                      const currentAssignees = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
+                      const isSelected = currentAssignees.includes(m.id);
+
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            const newAssignees = isSelected
+                              ? currentAssignees.filter((id) => id !== m.id)
+                              : [...currentAssignees, m.id];
+                            onUpdateTask({
+                              ...task,
+                              assignedTo: newAssignees[0] || null,
+                              assignedToIds: newAssignees,
+                            });
+                          }}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-50 border border-blue-200 text-blue-900 font-semibold shadow-2xs'
+                              : 'bg-white border border-gray-200/80 text-gray-700 hover:bg-gray-100/70'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 shadow-2xs"
+                              style={{ backgroundColor: m.color || '#004691' }}
+                            >
+                              {m.avatar || m.name.charAt(0)}
+                            </div>
+                            <div className="truncate">
+                              <span>{m.name}</span>
+                              <span className="text-[10px] font-normal text-gray-500 ml-1.5">
+                                ({m.role === 'admin' ? 'Admin' : 'Membro'}) - {m.email}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0 transition-colors ${
+                              isSelected
+                                ? 'bg-[#004691] border-[#004691] text-white'
+                                : 'border-gray-300 bg-white'
+                            }`}
+                          >
+                            {isSelected && '✓'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Datas */}

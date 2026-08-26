@@ -202,7 +202,9 @@ export default function TagManagementView({
     try {
       const { data, error } = await tagService.createTag({
         nome: cleanName,
+        color: newTagColor,
         cor: newTagColor,
+        description: newTagDescription.trim(),
         descricao: newTagDescription.trim(),
       });
 
@@ -771,31 +773,51 @@ export default function TagManagementView({
                         className="flex items-center justify-between p-3 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-2xs transition-all group"
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          {/* Ponto / Indicador de Cor */}
-                          <div
-                            className="w-3.5 h-3.5 rounded-full shrink-0 shadow-2xs ring-2 ring-white"
-                            style={{ backgroundColor: tag.cor || '#004691' }}
-                            title={`Cor: ${tag.cor || '#004691'}`}
-                          />
+                          {/* Indicador Visual da Cor: Círculo com estilo inline lendo diretamente tag.color */}
+                          {(() => {
+                            const tagColor = tag.color || tag.cor || '#004691';
+                            return (
+                              <div
+                                className="w-4 h-4 rounded-full shrink-0 shadow-xs ring-2 ring-white border border-black/10 transition-transform group-hover:scale-110"
+                                style={{ backgroundColor: tagColor }}
+                                title={`Código da cor: ${tagColor}`}
+                              />
+                            );
+                          })()}
 
                           <div className="min-w-0 flex-1 pr-2">
                             <div className="flex items-center gap-2 flex-wrap">
+                              {/* Nome da Categoria / Tag */}
                               <span className="text-xs font-bold text-slate-900 truncate">
                                 {tag.nome}
                               </span>
+
+                              {/* Badge com a cor exata em background inline */}
+                              {(() => {
+                                const tagColor = tag.color || tag.cor || '#004691';
+                                return (
+                                  <span
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white shadow-2xs shrink-0"
+                                    style={{ backgroundColor: tagColor }}
+                                  >
+                                    {tagColor.toUpperCase()}
+                                  </span>
+                                );
+                              })()}
+
                               {usageCount > 0 ? (
-                                <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-blue-50 text-[#003067] border border-blue-200/60">
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-[#003067] border border-blue-200/60">
                                   {usageCount} {usageCount === 1 ? 'tarefa ativa' : 'tarefas ativas'}
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-medium px-2 py-0.2 rounded-full bg-slate-100 text-slate-500">
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
                                   Sem tarefas vinculadas
                                 </span>
                               )}
                             </div>
-                            {tag.descricao && (
+                            {(tag.description || tag.descricao) && (
                               <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                {tag.descricao}
+                                {tag.description || tag.descricao}
                               </p>
                             )}
                           </div>

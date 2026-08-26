@@ -56,7 +56,35 @@ export function mapDbRowToTask(row: any): Task {
       : [];
   }
 
+  // Responsáveis da ação (suporte robusto a múltiplos responsáveis com fallback retrocompatível)
+  let assignedToIds: string[] = [];
+  const rawAssignees =
+    row.responsaveis_ids ??
+    row.assigned_to_ids ??
+    row.assignees ??
+    (rawCustom && typeof rawCustom === 'object' && rawCustom.assigneeIds);
+
+  if (Array.isArray(rawAssignees)) {
+    assignedToIds = rawAssignees.map(String).filter(Boolean);
+  } else if (typeof rawAssignees === 'string') {
+    try {
+      const parsed = JSON.parse(rawAssignees);
+      if (Array.isArray(parsed)) {
+        assignedToIds = parsed.map(String).filter(Boolean);
+      } else {
+        assignedToIds = rawAssignees.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    } catch {
+      assignedToIds = rawAssignees.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
   const assignedToId = row.responsavel_id ?? row.assigned_to ?? row.assignedTo ?? null;
+  if (assignedToId && !assignedToIds.includes(String(assignedToId))) {
+    assignedToIds.unshift(String(assignedToId));
+  }
+
+  const primaryAssignedTo = assignedToIds.length > 0 ? assignedToIds[0] : (assignedToId ? String(assignedToId) : null);
 
   return {
     id: String(row.id),
@@ -65,7 +93,8 @@ export function mapDbRowToTask(row: any): Task {
     priority: (row.prioridade ?? row.priority ?? 'Alta') as Priority,
     recurrence: (row.recorrencia ?? row.recurrence ?? 'Nenhuma') as Recurrence,
     tags,
-    assignedTo: assignedToId ? String(assignedToId) : null,
+    assignedTo: primaryAssignedTo,
+    assignedToIds,
     bucket: row.bucket ?? row.categoria ?? 'Operacional',
     startDate: row.data_inicio ?? row.start_date ?? row.startDate ?? undefined,
     endDate: row.data_fim ?? row.end_date ?? row.endDate ?? undefined,
@@ -96,11 +125,20 @@ export function mapTaskToDbPayload(
   if (task.recurrence !== undefined) payload.recorrencia = task.recurrence;
   if (task.bucket !== undefined) payload.bucket = task.bucket;
 
-  if (task.assignedTo !== undefined) {
-    if (task.assignedTo && isValidUUID(task.assignedTo)) {
-      payload.responsavel_id = task.assignedTo;
-    } else if (task.assignedTo && !task.assignedTo.startsWith('user-')) {
-      payload.responsavel_id = task.assignedTo;
+  // Lista de múltiplos responsáveis
+  const assignedToIds =
+    task.assignedToIds !== undefined
+      ? task.assignedToIds
+      : task.assignedTo
+      ? [task.assignedTo]
+      : [];
+
+  if (task.assignedTo !== undefined || task.assignedToIds !== undefined) {
+    const primaryId = assignedToIds[0] || task.assignedTo || null;
+    if (primaryId && isValidUUID(primaryId)) {
+      payload.responsavel_id = primaryId;
+    } else if (primaryId && !primaryId.startsWith('user-')) {
+      payload.responsavel_id = primaryId;
     } else {
       payload.responsavel_id = null;
     }
@@ -112,11 +150,16 @@ export function mapTaskToDbPayload(
   if (task.status !== undefined) payload.status = task.status;
   if (task.tags !== undefined) payload.tags = task.tags;
 
-  // Armazena definições de campos e valores preenchidos na coluna JSONB campos_customizados
-  if (task.customFields !== undefined || task.customFieldValues !== undefined) {
+  // Armazena definições de campos, valores e array de responsáveis no JSONB campos_customizados
+  if (
+    task.customFields !== undefined ||
+    task.customFieldValues !== undefined ||
+    task.assignedToIds !== undefined
+  ) {
     payload.campos_customizados = {
       fields: task.customFields || [],
       values: task.customFieldValues || [],
+      assigneeIds: assignedToIds,
     };
   }
 

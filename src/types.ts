@@ -13,6 +13,8 @@ export interface TeamMember {
   role: UserRole;
   avatarColor: string;
   initials: string;
+  color?: string; // alias opcional para avatarColor
+  avatar?: string; // alias opcional para initials
 }
 
 export interface TaskComment {
@@ -42,7 +44,9 @@ export interface TagBucket {
   id: string;
   nome: string;
   cor?: string;
+  color?: string; // alias direto para a coluna 'color' do Supabase
   descricao?: string;
+  description?: string; // alias direto para a coluna 'description' do Supabase
   created_at?: string;
 }
 
@@ -53,7 +57,8 @@ export interface Task {
   priority: Priority;
   recurrence: Recurrence;
   tags: string[];
-  assignedTo?: string | null; // TeamMember ID
+  assignedTo?: string | null; // TeamMember ID principal/legado
+  assignedToIds?: string[]; // Múltiplos responsáveis designados
   bucket: string; // ex: 'Financeiro', 'Operacional', 'Tecnologia', 'Marketing', 'Estratégico'
   startDate?: string; // YYYY-MM-DD
   endDate?: string; // YYYY-MM-DD

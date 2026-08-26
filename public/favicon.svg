@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="r9-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#004691" />
+      <stop offset="100%" stop-color="#002d62" />
+    </linearGradient>
+  </defs>
+  <!-- Background com cantos arredondados modernos (Squircle) -->
+  <rect width="512" height="512" rx="115" fill="url(#r9-bg)" />
+  <!-- Borda sutil de destaque interno -->
+  <rect x="8" y="8" width="496" height="496" rx="107" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="8" />
+  
+  <!-- Emblema Tipográfico Vetorial R9 em Branco Nítido -->
+  <g fill="#FFFFFF">
+    <!-- Letra R -->
+    <path d="M125 130 H235 C275 130 305 155 305 195 C305 228 285 250 252 258 L318 382 H256 L196 268 H182 V382 H125 Z M182 180 V222 H228 C246 222 258 212 258 201 C258 190 246 180 228 180 Z" />
+    
+    <!-- Número 9 -->
+    <path d="M380 130 C332 130 295 168 295 218 C295 268 332 306 380 306 C398 306 414 300 426 290 L400 382 H456 L490 256 C493 245 495 232 495 218 C495 168 458 130 410 130 Z M380 178 C406 178 426 198 426 224 C426 250 406 270 380 270 C354 270 334 250 334 224 C334 198 354 178 380 178 Z" transform="translate(-85, 0)" />
+  </g>
+</svg>
