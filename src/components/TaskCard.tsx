@@ -99,6 +99,12 @@ export default function TaskCard({
     if (rec === 'Diariamente') return 'Daily';
     if (rec === 'Semanalmente') return 'Weekly';
     if (rec === 'Mensalmente') return 'Monthly';
+    if (rec === 'Personalizado') {
+      if (task.recurrenceDays && task.recurrenceDays.length > 0) {
+        return task.recurrenceDays.join(', ');
+      }
+      return 'Custom';
+    }
     return rec;
   };
 

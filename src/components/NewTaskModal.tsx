@@ -22,6 +22,8 @@ interface NewTaskModalProps {
   tagBuckets?: TagBucket[];
 }
 
+const WEEK_DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
+
 export default function NewTaskModal({
   isOpen,
   onClose,
@@ -38,6 +40,7 @@ export default function NewTaskModal({
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('Alta');
   const [recurrence, setRecurrence] = useState<Recurrence>('Nenhuma');
+  const [customRecurrenceDays, setCustomRecurrenceDays] = useState<string[]>([]);
   const [bucket, setBucket] = useState(initialBucket);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [startDate, setStartDate] = useState('');
@@ -132,6 +135,7 @@ export default function NewTaskModal({
       description: description.trim(),
       priority,
       recurrence,
+      recurrenceDays: recurrence === 'Personalizado' ? customRecurrenceDays : undefined,
       bucket,
       assignedTo: selectedAssignees[0] || null,
       assignedToIds: selectedAssignees,
@@ -238,7 +242,13 @@ export default function NewTaskModal({
               </label>
               <select
                 value={recurrence}
-                onChange={(e) => setRecurrence(e.target.value as Recurrence)}
+                onChange={(e) => {
+                  const val = e.target.value as Recurrence;
+                  setRecurrence(val);
+                  if (val === 'Personalizado' && customRecurrenceDays.length === 0) {
+                    setCustomRecurrenceDays(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
+                  }
+                }}
                 className="w-full text-xs bg-white border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
               >
                 <option value="Nenhuma">Nenhuma (Única vez)</option>
@@ -246,9 +256,39 @@ export default function NewTaskModal({
                 <option value="Diariamente">Diariamente</option>
                 <option value="Semanalmente">Semanalmente</option>
                 <option value="Mensalmente">Mensalmente</option>
+                <option value="Personalizado">Personalizado</option>
               </select>
             </div>
           </div>
+
+          {/* Seleção de Dias da Semana (Exibido quando Recorrência for Personalizado) */}
+          {recurrence === 'Personalizado' && (
+            <div className="flex items-center justify-between flex-wrap gap-2 py-1 px-1">
+              {WEEK_DAYS.map((day) => {
+                const isChecked = customRecurrenceDays.includes(day);
+                return (
+                  <label
+                    key={day}
+                    className="flex items-center gap-1.5 text-xs text-gray-800 font-medium cursor-pointer select-none hover:text-[#004691]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        setCustomRecurrenceDays((prev) =>
+                          prev.includes(day)
+                            ? prev.filter((d) => d !== day)
+                            : [...prev, day]
+                        );
+                      }}
+                      className="w-4 h-4 rounded border-gray-400 text-[#004691] focus:ring-[#004691] cursor-pointer accent-[#004691]"
+                    />
+                    <span>{day}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
           {/* Bucket / Categoria */}
           <div>

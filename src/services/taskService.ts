@@ -86,12 +86,36 @@ export function mapDbRowToTask(row: any): Task {
 
   const primaryAssignedTo = assignedToIds.length > 0 ? assignedToIds[0] : (assignedToId ? String(assignedToId) : null);
 
+  // Dias da semana da recorrência personalizada
+  let recurrenceDays: string[] = [];
+  const rawRecurrenceDays =
+    row.dias_recorrencia ??
+    row.recurrence_days ??
+    row.recurrenceDays ??
+    (rawCustom && typeof rawCustom === 'object' && rawCustom.recurrenceDays);
+
+  if (Array.isArray(rawRecurrenceDays)) {
+    recurrenceDays = rawRecurrenceDays.map(String).filter(Boolean);
+  } else if (typeof rawRecurrenceDays === 'string') {
+    try {
+      const parsed = JSON.parse(rawRecurrenceDays);
+      if (Array.isArray(parsed)) {
+        recurrenceDays = parsed.map(String).filter(Boolean);
+      } else {
+        recurrenceDays = rawRecurrenceDays.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    } catch {
+      recurrenceDays = rawRecurrenceDays.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
   return {
     id: String(row.id),
     title: row.titulo ?? row.title ?? 'Sem título',
     description: row.descricao ?? row.description ?? '',
     priority: (row.prioridade ?? row.priority ?? 'Alta') as Priority,
     recurrence: (row.recorrencia ?? row.recurrence ?? 'Nenhuma') as Recurrence,
+    recurrenceDays,
     tags,
     assignedTo: primaryAssignedTo,
     assignedToIds,
@@ -150,16 +174,18 @@ export function mapTaskToDbPayload(
   if (task.status !== undefined) payload.status = task.status;
   if (task.tags !== undefined) payload.tags = task.tags;
 
-  // Armazena definições de campos, valores e array de responsáveis no JSONB campos_customizados
+  // Armazena definições de campos, valores, array de responsáveis e dias de recorrência no JSONB campos_customizados
   if (
     task.customFields !== undefined ||
     task.customFieldValues !== undefined ||
-    task.assignedToIds !== undefined
+    task.assignedToIds !== undefined ||
+    task.recurrenceDays !== undefined
   ) {
     payload.campos_customizados = {
       fields: task.customFields || [],
       values: task.customFieldValues || [],
       assigneeIds: assignedToIds,
+      recurrenceDays: task.recurrenceDays || [],
     };
   }
 

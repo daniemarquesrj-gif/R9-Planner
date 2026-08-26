@@ -2,7 +2,7 @@ export type UserRole = 'admin' | 'member';
 
 export type Priority = 'Urgente' | 'Alta' | 'Média' | 'Baixa';
 
-export type Recurrence = 'Nenhuma' | 'Segunda a Sexta' | 'Diariamente' | 'Semanalmente' | 'Mensalmente';
+export type Recurrence = 'Nenhuma' | 'Segunda a Sexta' | 'Diariamente' | 'Semanalmente' | 'Mensalmente' | 'Personalizado';
 
 export type TaskStatus = 'pendente' | 'em_andamento' | 'concluida';
 
@@ -56,6 +56,7 @@ export interface Task {
   description?: string;
   priority: Priority;
   recurrence: Recurrence;
+  recurrenceDays?: string[]; // Ex: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']
   tags: string[];
   assignedTo?: string | null; // TeamMember ID principal/legado
   assignedToIds?: string[]; // Múltiplos responsáveis designados

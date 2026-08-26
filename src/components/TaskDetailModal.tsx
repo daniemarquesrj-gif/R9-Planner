@@ -32,6 +32,8 @@ import {
 } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
 
+const WEEK_DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
+
 interface TaskDetailModalProps {
   task: Task | null;
   isOpen: boolean;
@@ -537,13 +539,21 @@ export default function TaskDetailModal({
                 </div>
 
                 {/* Recorrência */}
-                <div>
+                <div className={task.recurrence === 'Personalizado' ? 'sm:col-span-2' : ''}>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
                     Recorrência
                   </label>
                   <select
                     value={task.recurrence || 'Nenhuma'}
-                    onChange={(e) => handleFieldChange('recurrence', e.target.value as Recurrence)}
+                    onChange={(e) => {
+                      const val = e.target.value as Recurrence;
+                      const currentDays = task.recurrenceDays && task.recurrenceDays.length > 0 ? task.recurrenceDays : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
+                      onUpdateTask({
+                        ...task,
+                        recurrence: val,
+                        recurrenceDays: val === 'Personalizado' ? currentDays : task.recurrenceDays,
+                      });
+                    }}
                     className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
                   >
                     <option value="Nenhuma">Nenhuma (Única vez)</option>
@@ -551,7 +561,39 @@ export default function TaskDetailModal({
                     <option value="Diariamente">Diariamente</option>
                     <option value="Semanalmente">Semanalmente</option>
                     <option value="Mensalmente">Mensalmente</option>
+                    <option value="Personalizado">Personalizado</option>
                   </select>
+
+                  {task.recurrence === 'Personalizado' && (
+                    <div className="flex items-center justify-between flex-wrap gap-2 pt-2 px-1">
+                      {WEEK_DAYS.map((day) => {
+                        const currentDays = task.recurrenceDays || [];
+                        const isChecked = currentDays.includes(day);
+                        return (
+                          <label
+                            key={day}
+                            className="flex items-center gap-1.5 text-xs text-gray-800 font-medium cursor-pointer select-none hover:text-[#004691]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                const newDays = isChecked
+                                  ? currentDays.filter((d) => d !== day)
+                                  : [...currentDays, day];
+                                onUpdateTask({
+                                  ...task,
+                                  recurrenceDays: newDays,
+                                });
+                              }}
+                              className="w-4 h-4 rounded border-gray-400 text-[#004691] focus:ring-[#004691] cursor-pointer accent-[#004691]"
+                            />
+                            <span>{day}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Bucket / Categoria */}
