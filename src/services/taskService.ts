@@ -7,6 +7,43 @@ function isValidUUID(val?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 }
 
+// Canal global de broadcast para sincronização instantânea entre múltiplos usuários
+let realtimeSyncChannel: any = null;
+
+export function getTaskSyncChannel() {
+  if (!realtimeSyncChannel) {
+    realtimeSyncChannel = supabase.channel('tarefas-planner-sync-hub', {
+      config: {
+        broadcast: { ack: false, self: false },
+      },
+    });
+    realtimeSyncChannel.subscribe();
+  }
+  return realtimeSyncChannel;
+}
+
+export function broadcastTaskMutation(
+  action: 'created' | 'updated' | 'deleted' | 'form_submitted',
+  taskOrId?: Task | string | null
+) {
+  try {
+    const channel = getTaskSyncChannel();
+    const payload = {
+      action,
+      taskId: typeof taskOrId === 'string' ? taskOrId : taskOrId?.id,
+      task: typeof taskOrId === 'object' ? taskOrId : null,
+      timestamp: Date.now(),
+    };
+    channel.send({
+      type: 'broadcast',
+      event: 'task_mutation',
+      payload,
+    });
+  } catch (err) {
+    console.warn('Erro ao emitir broadcast de sincronização de tarefa:', err);
+  }
+}
+
 /**
  * Converte um registro do banco de dados Supabase (tabela 'tarefas')
  * para o modelo de dados Task utilizado no Planner.
@@ -263,6 +300,7 @@ export const taskService = {
 
       if (data && data.length > 0) {
         const created = mapDbRowToTask(data[0]);
+        broadcastTaskMutation('created', created);
         return { data: created, error: null };
       }
 
@@ -288,6 +326,7 @@ export const taskService = {
       if (error) {
         return { error };
       }
+      broadcastTaskMutation('updated', taskId);
       return { error: null };
     } catch (err) {
       return { error: err };
@@ -341,6 +380,8 @@ export const taskService = {
 
       if (error) {
         updateError = error;
+      } else {
+        broadcastTaskMutation('updated', updatedTask);
       }
 
       // 2. Verificação de Recorrência ao marcar como 'concluida'
@@ -392,6 +433,7 @@ export const taskService = {
 
           if (!recurrentError && recurrentData && recurrentData.length > 0) {
             nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
+            broadcastTaskMutation('created', nextRecurrentTask);
           } else if (recurrentError) {
             console.error('Erro ao criar próxima instância recorrente no Supabase:', recurrentError);
           }
@@ -445,6 +487,7 @@ export const taskService = {
         return { data: task, error };
       }
 
+      broadcastTaskMutation('updated', task);
       return { data: task, error: null };
     } catch (err) {
       return { data: task, error: err };
@@ -464,6 +507,7 @@ export const taskService = {
       if (error) {
         return { error };
       }
+      broadcastTaskMutation('deleted', taskId);
       return { error: null };
     } catch (err) {
       return { error: err };

@@ -247,7 +247,15 @@ export default function Planner({ user, onLogout }: PlannerProps) {
         setDbConnected(false);
       } else {
         setDbConnected(true);
-        setTasks(data || []);
+        const taskList = data || [];
+        setTasks(taskList);
+
+        // Atualizar selectedTask se o modal estiver aberto para manter valores e status ao vivo
+        setSelectedTask((curr) => {
+          if (!curr) return null;
+          const matched = taskList.find((t) => t.id === curr.id);
+          return matched || curr;
+        });
       }
     } catch {
       setDbConnected(false);
@@ -260,8 +268,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   useEffect(() => {
     loadTasksFromSupabase(true);
 
-    // Canal Realtime do Supabase para manter tudo sincronizado entre abas/usuários
-    const channel = supabase
+    // 1. Canal Realtime Postgres Changes do Supabase para alterações diretas no banco
+    const postgresChannel = supabase
       .channel('tarefas-planner-changes')
       .on(
         'postgres_changes',
@@ -282,16 +290,73 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             setTasks((prev) =>
               prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
             );
+            setSelectedTask((curr) =>
+              curr?.id === updatedTask.id ? updatedTask : curr
+            );
           } else if (payload.eventType === 'DELETE') {
             const deletedId = String(payload.old.id);
             setTasks((prev) => prev.filter((t) => t.id !== deletedId));
+            setSelectedTask((curr) => (curr?.id === deletedId ? null : curr));
           }
         }
       )
       .subscribe();
 
+    // 2. Canal Broadcast em tempo real para sincronização instantânea entre abas e usuários
+    const broadcastChannel = supabase
+      .channel('tarefas-planner-sync-hub', {
+        config: { broadcast: { ack: false, self: false } },
+      })
+      .on('broadcast', { event: 'task_mutation' }, (eventPayload) => {
+        const payload = eventPayload.payload;
+        if (!payload) return;
+
+        if (payload.action === 'deleted' && payload.taskId) {
+          setTasks((prev) => prev.filter((t) => t.id !== payload.taskId));
+          setSelectedTask((curr) => (curr?.id === payload.taskId ? null : curr));
+        } else if (payload.task) {
+          const incomingTask = payload.task as Task;
+          setTasks((prev) => {
+            const exists = prev.some((t) => t.id === incomingTask.id);
+            if (exists) {
+              return prev.map((t) => (t.id === incomingTask.id ? incomingTask : t));
+            }
+            return [incomingTask, ...prev];
+          });
+          setSelectedTask((curr) =>
+            curr?.id === incomingTask.id ? incomingTask : curr
+          );
+        } else {
+          // Atualização com recarga em background
+          loadTasksFromSupabase(false);
+        }
+      })
+      .subscribe();
+
+    // 3. Polling em segundo plano leve a cada 3.5s para garantir consistência total
+    const pollInterval = setInterval(() => {
+      loadTasksFromSupabase(false);
+    }, 3500);
+
+    // 4. Atualização imediata ao focar na janela ou voltar para a aba
+    const handleFocus = () => {
+      loadTasksFromSupabase(false);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadTasksFromSupabase(false);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(postgresChannel);
+      supabase.removeChannel(broadcastChannel);
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadTasksFromSupabase]);
 

@@ -167,7 +167,9 @@ export default function TaskDetailModal({
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
 
-  // Sincronizar os valores dos campos sempre que o membro selecionado ou a tarefa mudar
+  // Sincronizar os valores dos campos sempre que o membro selecionado ou a submissão dele mudar
+  const currentMemberSubString = JSON.stringify(task.userSubmissions?.[selectedMemberId] || null);
+
   useEffect(() => {
     const sub = getMemberSubmission(selectedMemberId);
     const initial: Record<string, string | number> = {};
@@ -176,7 +178,7 @@ export default function TaskDetailModal({
     });
     setActiveMemberFormValues(initial);
     setCompletionError(null);
-  }, [selectedMemberId, task.id]);
+  }, [selectedMemberId, task.id, currentMemberSubString]);
 
   // Contagem de progresso de membros
   const effectiveAssigneeIds = useMemo(() => {
