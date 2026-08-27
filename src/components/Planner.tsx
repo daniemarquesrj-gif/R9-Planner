@@ -550,11 +550,16 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
   // Execução unificada da conclusão de tarefas com suporte a Geração Automática por Recorrência no Supabase
   const executeCompleteTask = async (
-    taskId: string,
+    taskOrId: string | Task,
     filledValues?: CustomFieldValue[]
   ) => {
-    const targetTask = tasks.find((t) => t.id === taskId);
+    const targetTask =
+      typeof taskOrId === 'string'
+        ? tasks.find((t) => t.id === taskOrId)
+        : taskOrId;
     if (!targetTask) return;
+
+    const taskId = targetTask.id;
 
     // Executa a atualização no Supabase com lógica de recorrência
     const { updatedTask, nextRecurrentTask, error } =
@@ -640,7 +645,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       setTimeout(() => setToastMessage(null), 4000);
     } else {
       // Conclui diretamente e gera a próxima ocorrência recorrente caso aplicável
-      await executeCompleteTask(taskId);
+      await executeCompleteTask(task);
     }
   };
 
@@ -670,7 +675,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
     if (isBecomingCompleted) {
       // Se acabou de ser marcada como concluída pelo modal de detalhes, usa a rota com criação de recorrência
-      await executeCompleteTask(updated.id, updated.customFieldValues);
+      await executeCompleteTask(updated, updated.customFieldValues);
       setSelectedTask(updated);
       return;
     }

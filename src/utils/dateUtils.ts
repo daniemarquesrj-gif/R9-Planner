@@ -39,7 +39,8 @@ export function getTodayISO(): string {
  */
 export function getNextRecurrenceDate(
   currentDateStr: string | null | undefined,
-  recurrence: Recurrence | string | null | undefined
+  recurrence: Recurrence | string | null | undefined,
+  recurrenceDays?: string[]
 ): string | null {
   if (!currentDateStr || !recurrence) {
     return null;
@@ -111,14 +112,43 @@ export function getNextRecurrenceDate(
     return `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
   }
 
-  // 3. SEMANAL: Avança exatamente 7 dias
+  // 3. PERSONALIZADO (com dias da semana selecionados)
+  if (normalizedRec.includes('personaliz') && recurrenceDays && recurrenceDays.length > 0) {
+    const dayMap: Record<string, number> = {
+      dom: 0,
+      seg: 1,
+      ter: 2,
+      qua: 3,
+      qui: 4,
+      sex: 5,
+      sab: 6,
+      sáb: 6,
+    };
+
+    const targetDays = recurrenceDays
+      .map((d) => dayMap[d.toLowerCase().trim().slice(0, 3)])
+      .filter((n) => n !== undefined);
+
+    if (targetDays.length > 0) {
+      const baseDate = new Date(y, m - 1, d, 12, 0, 0);
+      for (let i = 1; i <= 14; i++) {
+        const next = new Date(baseDate);
+        next.setDate(baseDate.getDate() + i);
+        if (targetDays.includes(next.getDay())) {
+          return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
+        }
+      }
+    }
+  }
+
+  // 4. SEMANAL: Avança exatamente 7 dias
   if (normalizedRec.includes('seman')) {
     const baseDate = new Date(y, m - 1, d, 12, 0, 0);
     baseDate.setDate(baseDate.getDate() + 7);
     return `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
   }
 
-  // 4. MENSAL: Avança 1 mês mantendo o mesmo dia
+  // 5. MENSAL: Avança 1 mês mantendo o mesmo dia
   if (normalizedRec.includes('mensa')) {
     let targetYear = y;
     let targetMonth = m + 1; // 1-12

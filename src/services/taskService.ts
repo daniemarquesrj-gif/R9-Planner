@@ -352,24 +352,35 @@ export const taskService = {
       if (newStatus === 'concluida' && hasRecurrence) {
         // Base de cálculo: data_agendada atual (ou data_inicio / hoje)
         const baseDate = task.scheduledDate || task.startDate || formatISO(new Date());
-        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence);
+        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
 
         if (nextDate) {
-          // Criação da Nova Instância no Supabase
+          // Extrair a lista completa de múltiplos responsáveis para herança total
+          const allAssigneeIds =
+            task.assignedToIds && task.assignedToIds.length > 0
+              ? [...task.assignedToIds]
+              : task.assignedTo
+              ? [task.assignedTo]
+              : [];
+
+          // Criação da Nova Instância no Supabase herdando todos os responsáveis
           const recurrentPayload = mapTaskToDbPayload({
             title: task.title,
             description: task.description || '',
             priority: task.priority || 'Alta',
             recurrence: task.recurrence,
+            recurrenceDays: task.recurrenceDays || [],
             bucket: task.bucket || 'Operacional',
-            assignedTo: task.assignedTo || null,
+            assignedTo: allAssigneeIds[0] || null,
+            assignedToIds: allAssigneeIds,
             startDate: nextDate,
             endDate: nextDate,
             scheduledDate: nextDate,
             status: 'pendente',
             tags: task.tags || [],
             customFields: task.customFields || [],
-            customFieldValues: [], // Resetar valores para a nova ocorrência
+            customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
+            userSubmissions: {}, // Iniciar submissões limpas para os mesmos responsáveis
             comments: [], // Iniciar sem comentários históricos
           });
 
