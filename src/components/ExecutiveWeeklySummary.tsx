@@ -304,21 +304,36 @@ export default function ExecutiveWeeklySummary({
           );
 
         instances.forEach((t) => {
-          if (!t.customFieldValues || !Array.isArray(t.customFieldValues)) return;
+          let instanceHasValues = false;
 
-          const fVal = t.customFieldValues.find(
-            (v) => v.fieldId === field.id || v.fieldId === field.label
-          );
+          // Se houver submissões individuais de usuários
+          if (t.userSubmissions && Object.keys(t.userSubmissions).length > 0) {
+            Object.values(t.userSubmissions).forEach((sub) => {
+              if (sub && sub.values && sub.values[field.id] !== undefined && sub.values[field.id] !== null && sub.values[field.id] !== '') {
+                instanceHasValues = true;
+                const num = parseNumericValue(sub.values[field.id]);
+                numericSum += num;
+                distinctValuesSet.add(String(sub.values[field.id]));
+              }
+            });
+          } else if (t.customFieldValues && Array.isArray(t.customFieldValues)) {
+            const fVal = t.customFieldValues.find(
+              (v) => v.fieldId === field.id || v.fieldId === field.label
+            );
 
-          if (fVal && fVal.value !== undefined && fVal.value !== null && fVal.value !== '') {
-            filledInstancesCount++;
+            if (fVal && fVal.value !== undefined && fVal.value !== null && fVal.value !== '') {
+              instanceHasValues = true;
+              const num = parseNumericValue(fVal.value);
+              numericSum += num;
 
-            const num = parseNumericValue(fVal.value);
-            numericSum += num;
-
-            if (typeof fVal.value === 'string' || typeof fVal.value === 'number') {
-              distinctValuesSet.add(String(fVal.value));
+              if (typeof fVal.value === 'string' || typeof fVal.value === 'number') {
+                distinctValuesSet.add(String(fVal.value));
+              }
             }
+          }
+
+          if (instanceHasValues) {
+            filledInstancesCount++;
           }
         });
 

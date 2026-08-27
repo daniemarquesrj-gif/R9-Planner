@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Calendar,
@@ -18,6 +18,9 @@ import {
   Sliders,
   Check,
   Lock,
+  Users,
+  CheckSquare,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Task,
@@ -28,6 +31,7 @@ import {
   TaskStatus,
   CustomFormField,
   CustomFieldValue,
+  UserTaskSubmission,
   TagBucket,
 } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
@@ -73,70 +77,268 @@ export default function TaskDetailModal({
   const [fieldType, setFieldType] = useState<'number' | 'text'>('number');
   const [fieldRequired, setFieldRequired] = useState(true);
 
-  // Valores preenchidos pelo membro na visualização simplificada
-  const [memberFormValues, setMemberFormValues] = useState<Record<string, string | number>>(() => {
-    const map: Record<string, string | number> = {};
-    task.customFields?.forEach((f) => {
-      const existing = task.customFieldValues?.find((v) => v.fieldId === f.id);
-      map[f.id] = existing !== undefined ? existing.value : '';
+  // Lista normalizada de responsáveis da tarefa
+  const assigneeIds = useMemo(() => {
+    if (task.assignedToIds && task.assignedToIds.length > 0) {
+      return task.assignedToIds;
+    }
+    if (task.assignedTo) {
+      return [task.assignedTo];
+    }
+    return [];
+  }, [task.assignedToIds, task.assignedTo]);
+
+  // Objetos detalhados dos membros atribuídos
+  const assignedMemberList = useMemo(() => {
+    if (assigneeIds.length === 0) {
+      return [
+        {
+          id: currentUser.id || 'default-user',
+          name: currentUser.name || 'Usuário Atual',
+          email: currentUser.email || '',
+          role: currentUser.role,
+          avatarColor: currentUser.avatarColor || '#004691',
+          initials: currentUser.initials || 'U',
+        },
+      ];
+    }
+
+    return assigneeIds.map((id, index) => {
+      const found = teamMembers.find((m) => m.id === id);
+      if (found) return found;
+      return {
+        id,
+        name: `Usuário ${index + 1}`,
+        email: '',
+        role: 'member' as UserRole,
+        avatarColor: '#004691',
+        initials: `U${index + 1}`,
+      };
     });
-    return map;
+  }, [assigneeIds, teamMembers, currentUser]);
+
+  // ID do usuário atualmente selecionado no painel para visualização/preenchimento do formulário
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(() => {
+    if (currentUser?.id && assigneeIds.includes(currentUser.id)) {
+      return currentUser.id;
+    }
+    return assignedMemberList[0]?.id || currentUser?.id || 'default-user';
   });
+
+  // Obter submissão de um membro com fallback
+  const getMemberSubmission = (memberId: string): UserTaskSubmission => {
+    if (task.userSubmissions && task.userSubmissions[memberId]) {
+      return task.userSubmissions[memberId];
+    }
+    // Fallback legado se houver apenas 1 responsável e customFieldValues existir
+    if (assigneeIds.length <= 1 && task.customFieldValues && task.customFieldValues.length > 0) {
+      const legacyVals: Record<string, string | number> = {};
+      task.customFieldValues.forEach((v) => {
+        legacyVals[v.fieldId] = v.value;
+      });
+      return {
+        userId: memberId,
+        userName: assignedMemberList.find((m) => m.id === memberId)?.name,
+        completed: task.status === 'concluida',
+        values: legacyVals,
+      };
+    }
+    return {
+      userId: memberId,
+      userName: assignedMemberList.find((m) => m.id === memberId)?.name,
+      completed: false,
+      values: {},
+    };
+  };
+
+  // Valores ativos do formulário para o usuário selecionado
+  const [activeMemberFormValues, setActiveMemberFormValues] = useState<
+    Record<string, string | number>
+  >(() => {
+    const sub = getMemberSubmission(selectedMemberId);
+    const initial: Record<string, string | number> = {};
+    task.customFields?.forEach((f) => {
+      initial[f.id] = sub.values && sub.values[f.id] !== undefined ? sub.values[f.id] : '';
+    });
+    return initial;
+  });
+
+  // Mensagens de validação e feedback
   const [completionError, setCompletionError] = useState<string | null>(null);
+  const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
 
-  const handleStatusChange = (status: TaskStatus) => {
-    if (status === 'concluida') {
-      // Verificar se há campos obrigatórios não preenchidos
-      const missing: string[] = [];
-      const filled: CustomFieldValue[] = [];
+  // Sincronizar os valores dos campos sempre que o membro selecionado ou a tarefa mudar
+  useEffect(() => {
+    const sub = getMemberSubmission(selectedMemberId);
+    const initial: Record<string, string | number> = {};
+    task.customFields?.forEach((f) => {
+      initial[f.id] = sub.values && sub.values[f.id] !== undefined ? sub.values[f.id] : '';
+    });
+    setActiveMemberFormValues(initial);
+    setCompletionError(null);
+  }, [selectedMemberId, task.id]);
 
-      task.customFields?.forEach((field) => {
-        const val = memberFormValues[field.id];
-        if (field.required && (val === undefined || val === null || val === '')) {
-          missing.push(field.label);
-        }
-        if (val !== undefined && val !== null && val !== '') {
-          filled.push({ fieldId: field.id, value: val });
+  // Contagem de progresso de membros
+  const effectiveAssigneeIds = useMemo(() => {
+    return assigneeIds.length > 0 ? assigneeIds : [selectedMemberId];
+  }, [assigneeIds, selectedMemberId]);
+
+  const completedMembersCount = useMemo(() => {
+    return effectiveAssigneeIds.filter((id) => {
+      const sub = getMemberSubmission(id);
+      return sub.completed;
+    }).length;
+  }, [effectiveAssigneeIds, task.userSubmissions, task.customFieldValues, task.status]);
+
+  const totalMembersCount = effectiveAssigneeIds.length;
+  const allAssignedCompleted = completedMembersCount >= totalMembersCount;
+
+  // Atualizar input do formulário do membro selecionado
+  const handleInputChange = (fieldId: string, val: string, type: 'number' | 'text') => {
+    setCompletionError(null);
+    setSuccessFeedback(null);
+    const parsed = type === 'number' ? (val === '' ? '' : Number(val)) : val;
+    setActiveMemberFormValues((prev) => ({ ...prev, [fieldId]: parsed }));
+  };
+
+  // Submeter e finalizar a parte do usuário selecionado
+  const handleCompleteMemberPortion = (memberId: string) => {
+    setCompletionError(null);
+    setSuccessFeedback(null);
+
+    // 1. Validar campos obrigatórios
+    const missing: string[] = [];
+    task.customFields?.forEach((field) => {
+      const val = activeMemberFormValues[field.id];
+      if (field.required && (val === undefined || val === null || val === '')) {
+        missing.push(field.label);
+      }
+    });
+
+    if (missing.length > 0) {
+      setCompletionError(
+        `Preenchimento obrigatório pendente: ${missing.join(', ')}.`
+      );
+      return;
+    }
+
+    // 2. Atualizar submissão do membro
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        userId: memberId,
+        userName: memberName,
+        completed: true,
+        completedAt: new Date().toISOString(),
+        values: { ...activeMemberFormValues },
+      },
+    };
+
+    // 3. Consolidar valores para customFieldValues (compatibilidade)
+    const consolidatedValues: CustomFieldValue[] = [];
+    task.customFields?.forEach((f) => {
+      // Se tiver mais de uma submissão somar ou pegar o último
+      let sum: number | string = 0;
+      let isNum = f.type === 'number';
+      let hasAny = false;
+
+      Object.values(updatedSubmissions).forEach((s) => {
+        if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
+          hasAny = true;
+          if (isNum) {
+            sum = Number(sum) + Number(s.values[f.id]);
+          } else {
+            sum = String(s.values[f.id]);
+          }
         }
       });
 
-      if (missing.length > 0) {
+      if (hasAny) {
+        consolidatedValues.push({ fieldId: f.id, value: sum });
+      }
+    });
+
+    // 4. Verificar se todos os responsáveis completaram
+    const willAllBeCompleted = effectiveAssigneeIds.every(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
+
+    const newStatus: TaskStatus = willAllBeCompleted ? 'concluida' : 'em_andamento';
+
+    onUpdateTask({
+      ...task,
+      status: newStatus,
+      userSubmissions: updatedSubmissions,
+      customFieldValues: consolidatedValues,
+    });
+
+    if (willAllBeCompleted) {
+      setSuccessFeedback(
+        'Todos os responsáveis concluíram suas partes! A tarefa foi marcada como Concluída.'
+      );
+    } else {
+      setSuccessFeedback(
+        `Formulário de ${memberName} concluído com sucesso (${completedMembersCount + 1}/${totalMembersCount} concluídos). Aguardando os demais responsáveis.`
+      );
+    }
+  };
+
+  // Reabrir a parte do membro para edição
+  const handleReopenMemberPortion = (memberId: string) => {
+    setCompletionError(null);
+    setSuccessFeedback(null);
+
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        ...getMemberSubmission(memberId),
+        completed: false,
+      },
+    };
+
+    onUpdateTask({
+      ...task,
+      status: 'em_andamento',
+      userSubmissions: updatedSubmissions,
+    });
+
+    setSuccessFeedback('Formulário reaberto para edição.');
+  };
+
+  // Mudança do Status Global da Tarefa
+  const handleStatusChange = (newStatus: TaskStatus) => {
+    setCompletionError(null);
+    setSuccessFeedback(null);
+
+    if (newStatus === 'concluida') {
+      // Validar se todos os membros preencheram seus formulários
+      const uncompletedMembers = effectiveAssigneeIds.filter((id) => {
+        const sub = getMemberSubmission(id);
+        return !sub.completed;
+      });
+
+      if (uncompletedMembers.length > 0 && task.customFields && task.customFields.length > 0) {
+        const names = uncompletedMembers
+          .map((id) => assignedMemberList.find((m) => m.id === id)?.name || id)
+          .join(', ');
+
         setCompletionError(
-          `Preenchimento obrigatório para concluir: ${missing.join(', ')}.`
+          `Ação bloqueada: todos os responsáveis precisam preencher e finalizar seus formulários (${completedMembersCount}/${totalMembersCount} concluíram). Pendente para: ${names}.`
         );
         return;
       }
 
-      setCompletionError(null);
       onUpdateTask({
         ...task,
         status: 'concluida',
-        customFieldValues: filled,
       });
     } else {
-      setCompletionError(null);
-      onUpdateTask({ ...task, status });
+      onUpdateTask({
+        ...task,
+        status: newStatus,
+      });
     }
-  };
-
-  const handleMemberInputChange = (fieldId: string, val: string, type: 'number' | 'text') => {
-    setCompletionError(null);
-    const parsed = type === 'number' ? (val === '' ? '' : Number(val)) : val;
-    setMemberFormValues((prev) => ({ ...prev, [fieldId]: parsed }));
-
-    // Atualizar no objeto da tarefa os valores preenchidos em tempo real
-    const newFilled: CustomFieldValue[] = [];
-    task.customFields?.forEach((f) => {
-      const v = f.id === fieldId ? parsed : memberFormValues[f.id];
-      if (v !== undefined && v !== null && v !== '') {
-        newFilled.push({ fieldId: f.id, value: v });
-      }
-    });
-
-    onUpdateTask({
-      ...task,
-      customFieldValues: newFilled,
-    });
   };
 
   const handleFieldChange = (field: keyof Task, value: any) => {
@@ -228,6 +430,10 @@ export default function TaskDetailModal({
     }
   };
 
+  const currentSelectedSubmission = getMemberSubmission(selectedMemberId);
+  const isCurrentSelectedCompleted = currentSelectedSubmission.completed;
+  const selectedMemberObj = assignedMemberList.find((m) => m.id === selectedMemberId);
+
   return (
     <div
       id="task-detail-backdrop"
@@ -242,32 +448,38 @@ export default function TaskDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* ============================================================ */}
-        {/* CASO 1: VISÃO DO USUÁRIO COMUM (SIMPLIFICADA) */}
+        {/* CASO 1: VISÃO DO MEMBRO (SIMPLIFICADA & PROGRESSO MULTI-USUÁRIO) */}
         {/* ============================================================ */}
         {!isAdmin ? (
           <div className="flex flex-col h-full">
-            {/* Cabeçalho Simplificado */}
+            {/* Cabeçalho */}
             <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
                   Visão de Membro
                 </span>
+                {allAssignedCompleted && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Todos Concluíram
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Conteúdo Focado do Membro: Status, Prioridade e Formulário Obrigatório */}
+            {/* Conteúdo Focado */}
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
               {/* Título da Ação */}
               <div>
                 <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block mb-1">
-                  Ação
+                  AÇÃO
                 </span>
                 <h2 className="text-base font-bold text-gray-900 leading-snug">
                   {task.title}
@@ -277,42 +489,11 @@ export default function TaskDetailModal({
                     {task.description}
                   </p>
                 )}
-
-                {/* Exibição dos Responsáveis Designados */}
-                {(() => {
-                  const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
-                  const assignedMembers = teamMembers.filter((m) => assigneeIds.includes(m.id));
-                  if (assignedMembers.length === 0) return null;
-
-                  return (
-                    <div className="mt-3 p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                        Responsáveis Designados ({assignedMembers.length})
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {assignedMembers.map((m) => (
-                          <div
-                            key={m.id}
-                            className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-white border border-slate-200 shadow-2xs text-xs font-semibold text-slate-800"
-                          >
-                            <div
-                              className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                              style={{ backgroundColor: m.color || '#004691' }}
-                            >
-                              {m.avatar || m.name.charAt(0)}
-                            </div>
-                            <span className="text-xs">{m.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
               </div>
 
-              {/* Bloco de Status e Prioridade (Os únicos dois parâmetros exibidos) */}
+              {/* Bloco: Status da Ação e Prioridade */}
               <div className="grid grid-cols-2 gap-3 p-3.5 bg-gray-50/90 rounded-xl border border-gray-200">
-                {/* 1. Status */}
+                {/* 1. Status da Ação */}
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-600 mb-1.5">
                     Status da Ação
@@ -334,7 +515,7 @@ export default function TaskDetailModal({
                   </select>
                 </div>
 
-                {/* 2. Prioridade (Visualização apenas) */}
+                {/* 2. Prioridade */}
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-600 mb-1.5">
                     Prioridade
@@ -349,7 +530,95 @@ export default function TaskDetailModal({
                 </div>
               </div>
 
-              {/* Mensagem de Erro de Validação ao tentar concluir */}
+              {/* LISTA DE USUÁRIOS RESPONSÁVEIS COM CÍRCULOS DE STATUS (Prints 1 e 2) */}
+              <div className="border border-slate-200/90 rounded-xl bg-white shadow-2xs overflow-hidden">
+                <div className="px-3.5 py-2.5 bg-slate-50/80 border-b border-slate-200/70 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-slate-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      Usuários Responsáveis
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                    {completedMembersCount} de {totalMembersCount} concluíram
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {assignedMemberList.map((m, idx) => {
+                    const sub = getMemberSubmission(m.id);
+                    const isSelected = selectedMemberId === m.id;
+                    const isCompleted = sub.completed;
+
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={() => setSelectedMemberId(m.id)}
+                        className={`px-3.5 py-2.5 flex items-center justify-between transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-50/70 border-l-3 border-l-blue-600'
+                            : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {/* Círculo de Status: Verde preenchido (Concluído) ou Círculo preto vazado (Pendente) */}
+                          <div className="shrink-0 flex items-center justify-center">
+                            {isCompleted ? (
+                              <div
+                                className="w-5 h-5 rounded-full bg-[#22c55e] flex items-center justify-center text-white shadow-xs"
+                                title="Formulário preenchido e concluído"
+                              >
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              </div>
+                            ) : (
+                              <div
+                                className="w-5 h-5 rounded-full border-2 border-slate-700 bg-white shadow-2xs"
+                                title="Preenchimento pendente"
+                              />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-xs ${
+                                  isSelected ? 'font-bold text-slate-900' : 'font-medium text-slate-800'
+                                }`}
+                              >
+                                {m.name || `Usuário ${idx + 1}`}
+                              </span>
+                              {m.id === currentUser.id && (
+                                <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">
+                                  Você
+                                </span>
+                              )}
+                            </div>
+                            {m.email && (
+                              <span className="text-[10px] text-slate-400 truncate block">
+                                {m.email}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isCompleted ? (
+                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1">
+                              <span>Concluído</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                              Pendente
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Mensagem de Erro de Validação */}
               {completionError && (
                 <div className="p-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 animate-fadeIn">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -357,24 +626,54 @@ export default function TaskDetailModal({
                 </div>
               )}
 
-              {/* Formulário de Campos Customizados Obrigatórios (se houver) */}
-              {task.customFields && task.customFields.length > 0 && (
-                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-blue-700" />
-                    <h3 className="text-xs font-bold text-gray-900">
-                      Métricas & Campos Obrigatórios para Conclusão
-                    </h3>
+              {/* Mensagem de Sucesso */}
+              {successFeedback && (
+                <div className="p-3 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2 animate-fadeIn">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+                  <span>{successFeedback}</span>
+                </div>
+              )}
+
+              {/* FORMULÁRIO DE MÉTRICAS & CAMPOS OBRIGATÓRIOS (Prints 1 e 2) */}
+              {task.customFields && task.customFields.length > 0 ? (
+                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-blue-700" />
+                      <h3 className="text-xs font-bold text-gray-900">
+                        Métricas & Campos Obrigatórios para Conclusão
+                      </h3>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-gray-600">
+
+                  <p className="text-[11px] text-gray-600 leading-relaxed">
                     O administrador definiu os campos abaixo. Preencha-os para que seja possível marcar a ação como <strong>Concluída</strong>.
                   </p>
+
+                  {/* Indicador de qual usuário está sendo editado */}
+                  <div className="px-2.5 py-1.5 rounded-lg bg-white border border-blue-200/80 flex items-center justify-between text-xs">
+                    <span className="text-slate-600">
+                      Preenchendo para:{' '}
+                      <strong className="text-slate-900">
+                        {selectedMemberObj?.name || 'Usuário'}
+                      </strong>
+                    </span>
+                    {isCurrentSelectedCompleted ? (
+                      <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-700">
+                        <Check className="w-3 h-3 stroke-[3]" /> Concluído
+                      </span>
+                    ) : (
+                      <span className="text-[10.5px] text-amber-700 font-semibold">
+                        Aguardando envio
+                      </span>
+                    )}
+                  </div>
 
                   <div className="space-y-3 pt-1">
                     {task.customFields.map((field) => {
                       const currentVal =
-                        memberFormValues[field.id] !== undefined
-                          ? memberFormValues[field.id]
+                        activeMemberFormValues[field.id] !== undefined
+                          ? activeMemberFormValues[field.id]
                           : '';
 
                       return (
@@ -388,28 +687,91 @@ export default function TaskDetailModal({
                           <input
                             type={field.type === 'number' ? 'number' : 'text'}
                             required={field.required}
+                            disabled={isCurrentSelectedCompleted}
                             placeholder={
                               field.placeholder ||
                               (field.type === 'number' ? '0' : 'Preencha aqui...')
                             }
                             value={currentVal}
                             onChange={(e) =>
-                              handleMemberInputChange(field.id, e.target.value, field.type)
+                              handleInputChange(field.id, e.target.value, field.type)
                             }
-                            className="w-full text-xs border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 bg-white"
+                            className={`w-full text-xs border rounded-lg px-3 py-2 outline-none transition-all ${
+                              isCurrentSelectedCompleted
+                                ? 'bg-slate-100 text-slate-600 border-slate-200 cursor-not-allowed'
+                                : 'bg-white text-slate-900 border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20'
+                            }`}
                           />
                         </div>
                       );
                     })}
                   </div>
+
+                  {/* Botão de Concluir a Parte do Usuário */}
+                  <div className="pt-2">
+                    {isCurrentSelectedCompleted ? (
+                      <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Formulário finalizado por este usuário
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleReopenMemberPortion(selectedMemberId)}
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3 text-slate-500" />
+                          <span>Reabrir</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteMemberPortion(selectedMemberId)}
+                        className="w-full py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                        <span>
+                          Salvar e Concluir Minha Parte (
+                          {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Caso a ação não possua campos customizados, permite que o membro conclua sua parte diretamente */
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 text-center space-y-2">
+                  <p className="text-xs text-slate-600">
+                    Esta ação não possui formulário adicional. Marque sua parte como concluída quando finalizar sua atividade.
+                  </p>
+                  {isCurrentSelectedCompleted ? (
+                    <button
+                      type="button"
+                      onClick={() => handleReopenMemberPortion(selectedMemberId)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      Reabrir Minha Parte
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteMemberPortion(selectedMemberId)}
+                      className="px-4 py-2 text-xs font-bold text-white bg-[#004691] hover:bg-[#00356e] rounded-lg transition-colors cursor-pointer"
+                    >
+                      Marcar Minha Parte como Concluída
+                    </button>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Rodapé Simplificado */}
-            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between shrink-0">
               <span className="text-[11px] text-gray-500">
-                Alterações de status são salvas automaticamente.
+                {allAssignedCompleted
+                  ? 'Status da ação: Concluída ✅'
+                  : `Progresso: ${completedMembersCount}/${totalMembersCount} finalizados`}
               </span>
               <button
                 type="button"
@@ -422,7 +784,7 @@ export default function TaskDetailModal({
           </div>
         ) : (
           /* ============================================================ */
-          /* CASO 2: VISÃO DO ADMINISTRADOR (ACESSO COMPLETO) */
+          /* CASO 2: VISÃO DO ADMINISTRADOR (ACESSO COMPLETO & GESTÃO) */
           /* ============================================================ */
           <div className="flex flex-col h-full">
             {/* Cabeçalho do Drawer Admin */}
@@ -459,7 +821,7 @@ export default function TaskDetailModal({
                       onClose();
                     }
                   }}
-                  className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
                   title="Excluir ação"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -467,7 +829,7 @@ export default function TaskDetailModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -513,7 +875,7 @@ export default function TaskDetailModal({
                   <select
                     value={task.status}
                     onChange={(e) => handleStatusChange(e.target.value as TaskStatus)}
-                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
+                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600 cursor-pointer"
                   >
                     <option value="pendente">Pendente</option>
                     <option value="em_andamento">Em Andamento</option>
@@ -529,7 +891,7 @@ export default function TaskDetailModal({
                   <select
                     value={task.priority}
                     onChange={(e) => handleFieldChange('priority', e.target.value as Priority)}
-                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
+                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600 cursor-pointer"
                   >
                     <option value="Urgente">Urgente</option>
                     <option value="Alta">Alta</option>
@@ -547,14 +909,17 @@ export default function TaskDetailModal({
                     value={task.recurrence || 'Nenhuma'}
                     onChange={(e) => {
                       const val = e.target.value as Recurrence;
-                      const currentDays = task.recurrenceDays && task.recurrenceDays.length > 0 ? task.recurrenceDays : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
+                      const currentDays =
+                        task.recurrenceDays && task.recurrenceDays.length > 0
+                          ? task.recurrenceDays
+                          : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
                       onUpdateTask({
                         ...task,
                         recurrence: val,
                         recurrenceDays: val === 'Personalizado' ? currentDays : task.recurrenceDays,
                       });
                     }}
-                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
+                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600 cursor-pointer"
                   >
                     <option value="Nenhuma">Nenhuma (Única vez)</option>
                     <option value="Segunda a Sexta">Segunda a Sexta (Dias Úteis)</option>
@@ -604,7 +969,7 @@ export default function TaskDetailModal({
                   <select
                     value={task.bucket}
                     onChange={(e) => handleFieldChange('bucket', e.target.value)}
-                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600"
+                    className="w-full text-xs font-medium bg-white border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-blue-600 cursor-pointer"
                   >
                     {buckets.map((b) => (
                       <option key={b} value={b}>
@@ -614,13 +979,14 @@ export default function TaskDetailModal({
                   </select>
                 </div>
 
-                {/* Atribuição de Múltiplos Responsáveis da Equipe */}
+                {/* Atribuição de Múltiplos Responsáveis */}
                 <div className="sm:col-span-2">
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-semibold text-gray-700">
-                      Responsáveis da Equipe {(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 0 && `(${ (task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length } atribuído${(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 1 ? 's' : ''})`}
+                      Responsáveis da Equipe{' '}
+                      {assigneeIds.length > 0 && `(${assigneeIds.length} atribuído${assigneeIds.length > 1 ? 's' : ''})`}
                     </label>
-                    {(task.assignedToIds || (task.assignedTo ? [task.assignedTo] : [])).length > 0 && (
+                    {assigneeIds.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
@@ -639,8 +1005,7 @@ export default function TaskDetailModal({
 
                   <div className="p-2.5 bg-gray-50/80 border border-gray-200 rounded-lg max-h-40 overflow-y-auto space-y-1.5">
                     {teamMembers.map((m) => {
-                      const currentAssignees = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
-                      const isSelected = currentAssignees.includes(m.id);
+                      const isSelected = assigneeIds.includes(m.id);
 
                       return (
                         <button
@@ -648,8 +1013,8 @@ export default function TaskDetailModal({
                           type="button"
                           onClick={() => {
                             const newAssignees = isSelected
-                              ? currentAssignees.filter((id) => id !== m.id)
-                              : [...currentAssignees, m.id];
+                              ? assigneeIds.filter((id) => id !== m.id)
+                              : [...assigneeIds, m.id];
                             onUpdateTask({
                               ...task,
                               assignedTo: newAssignees[0] || null,
@@ -749,6 +1114,70 @@ export default function TaskDetailModal({
                 </div>
               </div>
 
+              {/* SEÇÃO: PROGRESSO INDIVIDUAL DOS RESPONSÁVEIS (ADMIN) */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-700" />
+                    <h3 className="text-xs font-bold text-gray-900">
+                      Progresso Individual por Responsável ({completedMembersCount}/{totalMembersCount})
+                    </h3>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Clique em um membro para inspecionar respostas
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {assignedMemberList.map((m, idx) => {
+                    const sub = getMemberSubmission(m.id);
+                    const isCompleted = sub.completed;
+                    const isSelected = selectedMemberId === m.id;
+
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedMemberId(m.id)}
+                        className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-500/20'
+                            : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {isCompleted ? (
+                            <div className="w-4.5 h-4.5 rounded-full bg-[#22c55e] flex items-center justify-center text-white shrink-0">
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </div>
+                          ) : (
+                            <div className="w-4.5 h-4.5 rounded-full border-2 border-slate-700 bg-white shrink-0" />
+                          )}
+                          <div className="truncate">
+                            <div className="text-xs font-bold text-slate-800 truncate">
+                              {m.name || `Usuário ${idx + 1}`}
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              {isCompleted ? 'Formulário finalizado' : 'Ainda pendente'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            isCompleted
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {isCompleted ? 'Concluído' : 'Pendente'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Seção: Configuração e Respostas dos Campos Customizáveis */}
               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/30 space-y-3">
                 <div className="flex items-center justify-between">
@@ -773,7 +1202,7 @@ export default function TaskDetailModal({
                   <div className="p-3 bg-white border border-blue-200 rounded-lg space-y-2">
                     <input
                       type="text"
-                      placeholder="Nome do campo (ex: Ligações efetivas)"
+                      placeholder="Nome do campo (ex: Total de Contatos na Base)"
                       value={fieldLabel}
                       onChange={(e) => setFieldLabel(e.target.value)}
                       className="w-full text-xs border border-gray-300 rounded px-2.5 py-1.5 outline-none focus:border-blue-600"
@@ -782,7 +1211,7 @@ export default function TaskDetailModal({
                       <select
                         value={fieldType}
                         onChange={(e) => setFieldType(e.target.value as 'number' | 'text')}
-                        className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                        className="text-xs border border-gray-300 rounded px-2 py-1 bg-white cursor-pointer"
                       >
                         <option value="number">Numérico</option>
                         <option value="text">Texto</option>
@@ -793,7 +1222,7 @@ export default function TaskDetailModal({
                           type="checkbox"
                           checked={fieldRequired}
                           onChange={(e) => setFieldRequired(e.target.checked)}
-                          className="rounded text-blue-600"
+                          className="rounded text-blue-600 cursor-pointer"
                         />
                         <span>Obrigatório</span>
                       </label>
@@ -814,7 +1243,9 @@ export default function TaskDetailModal({
                 {task.customFields && task.customFields.length > 0 ? (
                   <div className="space-y-2">
                     {task.customFields.map((f) => {
-                      const response = task.customFieldValues?.find((v) => v.fieldId === f.id);
+                      const userSub = getMemberSubmission(selectedMemberId);
+                      const response = userSub.values?.[f.id];
+
                       return (
                         <div
                           key={f.id}
@@ -830,14 +1261,14 @@ export default function TaskDetailModal({
                               )}
                             </div>
                             <div className="text-[11px] text-gray-500 mt-0.5">
-                              Valor preenchido:{' '}
-                              {response !== undefined && response.value !== '' ? (
+                              Preenchido por {selectedMemberObj?.name}:{' '}
+                              {response !== undefined && response !== '' ? (
                                 <strong className="text-gray-900 font-bold">
-                                  {response.value}
+                                  {response}
                                 </strong>
                               ) : (
                                 <span className="italic text-gray-400">
-                                  Ainda não preenchido pelo responsável
+                                  Ainda não preenchido por este membro
                                 </span>
                               )}
                             </div>
@@ -846,7 +1277,7 @@ export default function TaskDetailModal({
                           <button
                             type="button"
                             onClick={() => handleRemoveAdminCustomField(f.id)}
-                            className="p-1 text-gray-400 hover:text-red-600 rounded transition-colors"
+                            className="p-1 text-gray-400 hover:text-red-600 rounded transition-colors cursor-pointer"
                             title="Remover este campo da ação"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

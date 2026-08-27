@@ -597,7 +597,31 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       return;
     }
 
-    // Se estiver marcando como concluída, verificar se há campos customizados obrigatórios
+    // Se a tarefa tiver múltiplos responsáveis ou campos customizados, verificar se todos completaram
+    const assigneeIds = task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []);
+    const effectiveAssignees = assigneeIds.length > 0 ? assigneeIds : (currentUser.id ? [currentUser.id] : []);
+
+    const uncompletedAssignees = effectiveAssignees.filter((id) => {
+      if (task.userSubmissions && task.userSubmissions[id]) {
+        return !task.userSubmissions[id].completed;
+      }
+      return true;
+    });
+
+    const hasCustomFields = task.customFields && task.customFields.length > 0;
+
+    if (uncompletedAssignees.length > 0 && hasCustomFields) {
+      // Abre o modal de detalhes para preenchimento individual e visualização do status
+      setSelectedTask(task);
+      setIsDetailOpen(true);
+      setToastMessage(
+        `Esta tarefa é compartilhada: todos os responsáveis precisam preencher seus formulários (${effectiveAssignees.length - uncompletedAssignees.length}/${effectiveAssignees.length} concluíram).`
+      );
+      setTimeout(() => setToastMessage(null), 5000);
+      return;
+    }
+
+    // Se estiver marcando como concluída, verificar se há campos customizados obrigatórios legados
     const hasUnfilledRequiredFields = task.customFields?.some((f) => {
       if (!f.required) return false;
       const filled = task.customFieldValues?.find((v) => v.fieldId === f.id);
@@ -610,9 +634,10 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     });
 
     if (hasUnfilledRequiredFields) {
-      // Abre o modal de preenchimento obrigatório
-      setCompletingTask(task);
-      setIsCompletionModalOpen(true);
+      setSelectedTask(task);
+      setIsDetailOpen(true);
+      setToastMessage('Preencha os campos obrigatórios para concluir a ação.');
+      setTimeout(() => setToastMessage(null), 4000);
     } else {
       // Conclui diretamente e gera a próxima ocorrência recorrente caso aplicável
       await executeCompleteTask(taskId);

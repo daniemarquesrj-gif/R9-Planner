@@ -40,6 +40,14 @@ export interface CustomFieldValue {
   value: string | number;
 }
 
+export interface UserTaskSubmission {
+  userId: string;
+  userName?: string;
+  completed: boolean;
+  completedAt?: string;
+  values: Record<string, string | number>; // fieldId -> value
+}
+
 export interface TagBucket {
   id: string;
   nome: string;
@@ -67,5 +75,6 @@ export interface Task {
   status: TaskStatus;
   comments: TaskComment[];
   customFields?: CustomFormField[]; // Campos dinâmicos configurados pelo admin
-  customFieldValues?: CustomFieldValue[]; // Valores preenchidos pelo responsável
+  customFieldValues?: CustomFieldValue[]; // Valores preenchidos legado/unificado
+  userSubmissions?: Record<string, UserTaskSubmission>; // Submissão individual de cada usuário responsável
 }

@@ -69,6 +69,24 @@ export default function TaskCard({
     }
   };
 
+  // Contagem de progresso de submissões por múltiplos responsáveis
+  const effectiveAssignees =
+    assigneeIds.length > 0
+      ? assigneeIds
+      : task.assignedTo
+      ? [task.assignedTo]
+      : [];
+
+  const completedAssigneesCount = effectiveAssignees.filter((id) => {
+    if (task.userSubmissions && task.userSubmissions[id]) {
+      return task.userSubmissions[id].completed;
+    }
+    return isConcluida;
+  }).length;
+
+  const totalAssignees = effectiveAssignees.length;
+  const isMultiAssignee = totalAssignees > 1;
+
   // Contagem de campos customizados obrigatórios preenchidos
   const requiredFieldsCount =
     task.customFields?.filter((f) => f.required).length || 0;
@@ -84,7 +102,10 @@ export default function TaskCard({
     }).length || 0;
 
   const hasRequiredFields = requiredFieldsCount > 0;
-  const isFormComplete = filledFieldsCount >= requiredFieldsCount;
+  const isFormComplete =
+    isMultiAssignee && hasRequiredFields
+      ? completedAssigneesCount >= totalAssignees
+      : filledFieldsCount >= requiredFieldsCount;
 
   // Seleciona categoria principal
   const primaryBadge = task.bucket || (task.tags && task.tags[0]) || null;
@@ -225,7 +246,7 @@ export default function TaskCard({
 
         {/* Indicadores Compactos: Formulário + Comentários */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Indicador de Formulário / Subtarefas */}
+          {/* Indicador de Formulário / Progresso Multi-usuário */}
           {hasRequiredFields && (
             <div
               className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
@@ -235,13 +256,19 @@ export default function TaskCard({
               }`}
               title={
                 isFormComplete || isConcluida
-                  ? 'Formulário preenchido com sucesso'
+                  ? isMultiAssignee
+                    ? `Todos os ${totalAssignees} membros preencheram seus formulários`
+                    : 'Formulário preenchido com sucesso'
+                  : isMultiAssignee
+                  ? `Progresso de formulários: ${completedAssigneesCount}/${totalAssignees} membros preencheram`
                   : `Formulário pendente: ${filledFieldsCount}/${requiredFieldsCount} campos preenchidos`
               }
             >
               <CheckSquare className="w-3 h-3 text-emerald-600" />
               <span>
-                {filledFieldsCount}/{requiredFieldsCount}
+                {isMultiAssignee
+                  ? `${completedAssigneesCount}/${totalAssignees}`
+                  : `${filledFieldsCount}/${requiredFieldsCount}`}
               </span>
             </div>
           )}

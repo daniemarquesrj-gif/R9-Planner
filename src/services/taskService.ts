@@ -1,5 +1,5 @@
 import { supabase } from '../supabase.js';
-import { Task, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment } from '../types.ts';
+import { Task, Priority, Recurrence, TaskStatus, CustomFormField, CustomFieldValue, TaskComment, UserTaskSubmission } from '../types.ts';
 import { getNextRecurrenceDate, formatISO } from '../utils/dateUtils.ts';
 
 function isValidUUID(val?: string | null): boolean {
@@ -109,6 +109,24 @@ export function mapDbRowToTask(row: any): Task {
     }
   }
 
+  // Submissões individuais por usuário (para tarefas compartilhadas com formulários)
+  let userSubmissions: Record<string, UserTaskSubmission> = {};
+  const rawSubmissions =
+    row.submissoes_usuarios ??
+    row.user_submissions ??
+    row.userSubmissions ??
+    (rawCustom && typeof rawCustom === 'object' && (rawCustom.userSubmissions || rawCustom.user_submissions));
+
+  if (rawSubmissions && typeof rawSubmissions === 'object' && !Array.isArray(rawSubmissions)) {
+    userSubmissions = rawSubmissions;
+  } else if (Array.isArray(rawSubmissions)) {
+    rawSubmissions.forEach((sub: any) => {
+      if (sub && sub.userId) {
+        userSubmissions[sub.userId] = sub;
+      }
+    });
+  }
+
   return {
     id: String(row.id),
     title: row.titulo ?? row.title ?? 'Sem título',
@@ -132,6 +150,7 @@ export function mapDbRowToTask(row: any): Task {
     comments,
     customFields,
     customFieldValues,
+    userSubmissions,
   };
 }
 
@@ -174,18 +193,20 @@ export function mapTaskToDbPayload(
   if (task.status !== undefined) payload.status = task.status;
   if (task.tags !== undefined) payload.tags = task.tags;
 
-  // Armazena definições de campos, valores, array de responsáveis e dias de recorrência no JSONB campos_customizados
+  // Armazena definições de campos, valores, array de responsáveis, dias de recorrência e submissões individuais no JSONB campos_customizados
   if (
     task.customFields !== undefined ||
     task.customFieldValues !== undefined ||
     task.assignedToIds !== undefined ||
-    task.recurrenceDays !== undefined
+    task.recurrenceDays !== undefined ||
+    task.userSubmissions !== undefined
   ) {
     payload.campos_customizados = {
       fields: task.customFields || [],
       values: task.customFieldValues || [],
       assigneeIds: assignedToIds,
       recurrenceDays: task.recurrenceDays || [],
+      userSubmissions: task.userSubmissions || {},
     };
   }
 
@@ -307,6 +328,9 @@ export const taskService = {
         campos_customizados: {
           fields: task.customFields || [],
           values: updatedValues,
+          assigneeIds: task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []),
+          recurrenceDays: task.recurrenceDays || [],
+          userSubmissions: task.userSubmissions || {},
         },
       };
 
