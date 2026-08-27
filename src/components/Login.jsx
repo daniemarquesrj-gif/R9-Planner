@@ -92,7 +92,10 @@ export default function Login({ onLoginSuccess }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8">
       <div id="auth-card" className="w-full max-w-md bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <div className="mb-8 text-center">
+        <div className="mb-8 text-center flex flex-col items-center">
+          <div className="w-14 h-14 bg-gradient-to-br from-[#0056b3] to-[#003d7a] rounded-2xl flex items-center justify-center shadow-md shadow-blue-900/15 mb-4 select-none">
+            <span className="text-white font-black text-2xl tracking-wider">R9</span>
+          </div>
           <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
             {isRegisterMode ? 'Criar Nova Conta' : 'Acessar Conta'}
           </h1>

@@ -814,7 +814,10 @@ export default function Planner({ user, onLogout }: PlannerProps) {
             <PanelLeft className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-gradient-to-br from-[#0056b3] to-[#003d7a] rounded-lg flex items-center justify-center shadow-xs select-none shrink-0">
+              <span className="text-white font-black text-xs tracking-wider">R9</span>
+            </div>
             <h1 className="text-sm font-bold text-zinc-900 leading-none tracking-tight">
               Planner de Equipe
             </h1>
