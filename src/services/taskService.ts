@@ -456,6 +456,193 @@ export const taskService = {
   },
 
   /**
+   * Conclui ou reabre a parte de um responsável específico em uma tarefa (Conclusão Parcial).
+   * Atualiza a submissão no Supabase sem afetar os dados ou status dos outros membros atribuídos.
+   * Se todos os membros atribuídos completarem, atualiza o status geral da tarefa para 'concluida'
+   * e dispara a recorrência automática quando configurada.
+   */
+  async updateAssigneeCompletion(
+    task: Task,
+    memberId: string,
+    completed: boolean,
+    values?: Record<string, string | number>,
+    memberName?: string
+  ): Promise<{
+    updatedTask: Task;
+    nextRecurrentTask: Task | null;
+    error: any | null;
+  }> {
+    const assigneeIds =
+      task.assignedToIds && task.assignedToIds.length > 0
+        ? task.assignedToIds
+        : task.assignedTo
+        ? [task.assignedTo]
+        : [memberId];
+
+    const existingSub = task.userSubmissions?.[memberId] || {
+      userId: memberId,
+      userName: memberName || 'Usuário',
+      completed: false,
+      values: {},
+    };
+
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        ...existingSub,
+        userId: memberId,
+        userName: memberName || existingSub.userName || 'Usuário',
+        completed,
+        completedAt: completed
+          ? existingSub.completedAt || new Date().toISOString()
+          : undefined,
+        values: values !== undefined ? values : existingSub.values || {},
+      },
+    };
+
+    // Consolidar valores para customFieldValues
+    const consolidatedValues: CustomFieldValue[] = [];
+    if (task.customFields && task.customFields.length > 0) {
+      task.customFields.forEach((f) => {
+        let sum: number | string = 0;
+        const isNum = f.type === 'number';
+        let hasAny = false;
+
+        Object.values(updatedSubmissions).forEach((s) => {
+          if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
+            hasAny = true;
+            if (isNum) {
+              sum = Number(sum) + Number(s.values[f.id]);
+            } else {
+              sum = String(s.values[f.id]);
+            }
+          }
+        });
+
+        if (hasAny) {
+          consolidatedValues.push({ fieldId: f.id, value: sum });
+        }
+      });
+    }
+
+    // Verificar se todos os responsáveis completaram
+    const allCompleted = assigneeIds.every(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
+    const anyCompleted = assigneeIds.some(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
+
+    const newStatus: TaskStatus = allCompleted
+      ? 'concluida'
+      : anyCompleted
+      ? 'em_andamento'
+      : 'pendente';
+
+    const updatedTask: Task = {
+      ...task,
+      status: newStatus,
+      userSubmissions: updatedSubmissions,
+      customFieldValues:
+        consolidatedValues.length > 0
+          ? consolidatedValues
+          : task.customFieldValues,
+    };
+
+    let nextRecurrentTask: Task | null = null;
+    let updateError: any = null;
+
+    try {
+      const payload: Record<string, any> = {
+        status: newStatus,
+        campos_customizados: {
+          fields: task.customFields || [],
+          values: updatedTask.customFieldValues || [],
+          assigneeIds: task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []),
+          recurrenceDays: task.recurrenceDays || [],
+          userSubmissions: updatedSubmissions,
+        },
+      };
+
+      const { error } = await supabase
+        .from('tarefas')
+        .update(payload)
+        .eq('id', task.id);
+
+      if (error) {
+        updateError = error;
+      } else {
+        broadcastTaskMutation('updated', updatedTask);
+      }
+
+      // Verificação de Recorrência se todos concluíram
+      const hasRecurrence =
+        task.recurrence &&
+        task.recurrence !== 'Nenhuma' &&
+        task.recurrence.trim() !== '';
+
+      if (allCompleted && hasRecurrence) {
+        const baseDate = task.scheduledDate || task.startDate || formatISO(new Date());
+        const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
+
+        if (nextDate) {
+          const allAssigneeIds =
+            task.assignedToIds && task.assignedToIds.length > 0
+              ? [...task.assignedToIds]
+              : task.assignedTo
+              ? [task.assignedTo]
+              : [];
+
+          const recurrentPayload = mapTaskToDbPayload({
+            title: task.title,
+            description: task.description || '',
+            priority: task.priority || 'Alta',
+            recurrence: task.recurrence,
+            recurrenceDays: task.recurrenceDays || [],
+            bucket: task.bucket || 'Operacional',
+            assignedTo: allAssigneeIds[0] || null,
+            assignedToIds: allAssigneeIds,
+            startDate: nextDate,
+            endDate: nextDate,
+            scheduledDate: nextDate,
+            status: 'pendente',
+            tags: task.tags || [],
+            customFields: task.customFields || [],
+            customFieldValues: [],
+            userSubmissions: {},
+            comments: [],
+          });
+
+          const { data: recurrentData, error: recurrentError } = await supabase
+            .from('tarefas')
+            .insert([recurrentPayload])
+            .select();
+
+          if (!recurrentError && recurrentData && recurrentData.length > 0) {
+            nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
+            broadcastTaskMutation('created', nextRecurrentTask);
+          } else if (recurrentError) {
+            console.error('Erro ao criar próxima instância recorrente no Supabase:', recurrentError);
+          }
+        }
+      }
+
+      return {
+        updatedTask,
+        nextRecurrentTask,
+        error: updateError,
+      };
+    } catch (err) {
+      console.error('Erro ao atualizar conclusão individual do responsável:', err);
+      return {
+        updatedTask,
+        nextRecurrentTask: null,
+        error: err,
+      };
+    }
+  },
+
+  /**
    * Função explícita para marcar uma tarefa como 'concluida', aplicando preenchimento e gerando recorrência automática.
    */
   async completeTask(

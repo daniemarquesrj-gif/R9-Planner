@@ -291,21 +291,122 @@ export default function TaskDetailModal({
     setCompletionError(null);
     setSuccessFeedback(null);
 
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const sub = getMemberSubmission(memberId);
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions || {}),
       [memberId]: {
-        ...getMemberSubmission(memberId),
+        ...sub,
+        userId: memberId,
+        userName: memberName,
         completed: false,
+        completedAt: undefined,
       },
     };
 
+    // Verificar novo status geral
+    const willAnyBeCompleted = effectiveAssigneeIds.some(
+      (id) => id !== memberId && updatedSubmissions[id]?.completed === true
+    );
+    const newStatus: TaskStatus = willAnyBeCompleted ? 'em_andamento' : 'pendente';
+
     onUpdateTask({
       ...task,
-      status: 'em_andamento',
+      status: newStatus,
       userSubmissions: updatedSubmissions,
     });
 
-    setSuccessFeedback('Formulário reaberto para edição.');
+    setSuccessFeedback(`Parte de ${memberName} reaberta como pendente.`);
+  };
+
+  // Ação rápida do Administrador para finalizar ou reabrir apenas a parte de um responsável específico
+  const handleAdminToggleMemberCompletion = (
+    memberId: string,
+    e?: React.MouseEvent
+  ) => {
+    if (e) e.stopPropagation();
+    setCompletionError(null);
+    setSuccessFeedback(null);
+
+    const sub = getMemberSubmission(memberId);
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const newCompleted = !sub.completed;
+
+    // Se o membro selecionado está sendo editado no momento, herda os valores atuais do formulário
+    const valuesToUse =
+      memberId === selectedMemberId
+        ? { ...activeMemberFormValues }
+        : sub.values || {};
+
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        ...sub,
+        userId: memberId,
+        userName: memberName,
+        completed: newCompleted,
+        completedAt: newCompleted ? new Date().toISOString() : undefined,
+        values: valuesToUse,
+      },
+    };
+
+    // Consolidar valores para customFieldValues (compatibilidade)
+    const consolidatedValues: CustomFieldValue[] = [];
+    task.customFields?.forEach((f) => {
+      let sum: number | string = 0;
+      const isNum = f.type === 'number';
+      let hasAny = false;
+
+      Object.values(updatedSubmissions).forEach((s) => {
+        if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
+          hasAny = true;
+          if (isNum) {
+            sum = Number(sum) + Number(s.values[f.id]);
+          } else {
+            sum = String(s.values[f.id]);
+          }
+        }
+      });
+
+      if (hasAny) {
+        consolidatedValues.push({ fieldId: f.id, value: sum });
+      }
+    });
+
+    // Recalcular status global
+    const willAllBeCompleted = effectiveAssigneeIds.every(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
+    const willAnyBeCompleted = effectiveAssigneeIds.some(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
+
+    const newStatus: TaskStatus = willAllBeCompleted
+      ? 'concluida'
+      : willAnyBeCompleted
+      ? 'em_andamento'
+      : 'pendente';
+
+    onUpdateTask({
+      ...task,
+      status: newStatus,
+      userSubmissions: updatedSubmissions,
+      customFieldValues: consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
+    });
+
+    if (newCompleted) {
+      if (willAllBeCompleted) {
+        setSuccessFeedback(
+          `Parte de ${memberName} finalizada! Todos os responsáveis concluíram e a tarefa foi finalizada.`
+        );
+      } else {
+        setSuccessFeedback(
+          `Parte de ${memberName} finalizada com sucesso pelo administrador.`
+        );
+      }
+    } else {
+      setSuccessFeedback(`Parte de ${memberName} reaberta como pendente.`);
+    }
   };
 
   // Mudança do Status Global da Tarefa
@@ -563,7 +664,7 @@ export default function TaskDetailModal({
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          {/* Círculo de Status: Verde preenchido (Concluído) ou Círculo preto vazado (Pendente) */}
+                          {/* Círculo de Status: Verde preenchido (Concluído) ou Círculo vazado (Pendente) */}
                           <div className="shrink-0 flex items-center justify-center">
                             {isCompleted ? (
                               <div
@@ -609,9 +710,39 @@ export default function TaskDetailModal({
                               <span>Concluído</span>
                             </span>
                           ) : (
-                            <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                               Pendente
                             </span>
+                          )}
+
+                          {/* Botão de Ação Rápida: Administrador pode concluir ou reabrir qualquer responsável */}
+                          {(isAdmin || m.id === currentUser.id) && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleAdminToggleMemberCompletion(m.id, e)}
+                              className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                                isCompleted
+                                  ? 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'
+                                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 shadow-2xs font-bold'
+                              }`}
+                              title={
+                                isCompleted
+                                  ? `Reabrir parte de ${m.name || 'Usuário'}`
+                                  : `Finalizar apenas a parte de ${m.name || 'Usuário'}`
+                              }
+                            >
+                              {isCompleted ? (
+                                <>
+                                  <RotateCcw className="w-3 h-3 text-slate-400" />
+                                  <span>Reabrir</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  <span>Finalizar parte</span>
+                                </>
+                              )}
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1126,55 +1257,94 @@ export default function TaskDetailModal({
                     </h3>
                   </div>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    Clique em um membro para inspecionar respostas
+                    Ação rápida para finalizar ou reabrir parte de cada usuário
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {assignedMemberList.map((m, idx) => {
                     const sub = getMemberSubmission(m.id);
                     const isCompleted = sub.completed;
                     const isSelected = selectedMemberId === m.id;
 
                     return (
-                      <button
+                      <div
                         key={m.id}
-                        type="button"
                         onClick={() => setSelectedMemberId(m.id)}
-                        className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                        className={`p-3 rounded-lg border flex flex-col justify-between gap-2.5 transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-500/20'
-                            : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/70'
+                            ? 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-500/20 shadow-2xs'
+                            : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/70 hover:border-slate-300'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {isCompleted ? (
-                            <div className="w-4.5 h-4.5 rounded-full bg-[#22c55e] flex items-center justify-center text-white shrink-0">
-                              <Check className="w-3 h-3 stroke-[3]" />
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {isCompleted ? (
+                              <div className="w-5 h-5 rounded-full bg-[#22c55e] flex items-center justify-center text-white shrink-0 shadow-2xs">
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded-full border-2 border-slate-700 bg-white shrink-0 shadow-2xs" />
+                            )}
+                            <div className="truncate">
+                              <div className="text-xs font-bold text-slate-800 truncate">
+                                {m.name || `Usuário ${idx + 1}`}
+                              </div>
+                              <span className="text-[10.5px] text-slate-500 truncate block">
+                                {m.email || (isCompleted ? 'Concluído' : 'Pendente')}
+                              </span>
                             </div>
-                          ) : (
-                            <div className="w-4.5 h-4.5 rounded-full border-2 border-slate-700 bg-white shrink-0" />
-                          )}
-                          <div className="truncate">
-                            <div className="text-xs font-bold text-slate-800 truncate">
-                              {m.name || `Usuário ${idx + 1}`}
-                            </div>
-                            <span className="text-[10px] text-slate-400">
-                              {isCompleted ? 'Formulário finalizado' : 'Ainda pendente'}
-                            </span>
                           </div>
+
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
+                              isCompleted
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/60'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {isCompleted ? 'Concluído' : 'Pendente'}
+                          </span>
                         </div>
 
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            isCompleted
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {isCompleted ? 'Concluído' : 'Pendente'}
-                        </span>
-                      </button>
+                        {/* Botão de Ação Rápida do Administrador */}
+                        <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400">
+                            {isCompleted
+                              ? sub.completedAt
+                                ? `Concluído em ${new Date(sub.completedAt).toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                                : 'Finalizado'
+                              : 'Aguardando preenchimento'}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleAdminToggleMemberCompletion(m.id, e)}
+                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                              isCompleted
+                                ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-bold'
+                            }`}
+                            title={
+                              isCompleted
+                                ? `Reabrir a parte de ${m.name || 'Usuário'}`
+                                : `Finalizar imediatamente a parte de ${m.name || 'Usuário'}`
+                            }
+                          >
+                            {isCompleted ? (
+                              <>
+                                <RotateCcw className="w-3 h-3 text-slate-500" />
+                                <span>Reabrir</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                <span>Finalizar parte</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -1240,6 +1410,38 @@ export default function TaskDetailModal({
                     </div>
                   </div>
                 )}
+
+                {/* Indicador de qual membro está sendo inspecionado */}
+                <div className="px-3 py-2 bg-white rounded-lg border border-blue-200 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Inspecionando respostas de:</span>
+                    <strong className="text-slate-900 font-bold">
+                      {selectedMemberObj?.name || 'Usuário'}
+                    </strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAdminToggleMemberCompletion(selectedMemberId)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer ${
+                      isCurrentSelectedCompleted
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                    }`}
+                  >
+                    {isCurrentSelectedCompleted ? (
+                      <>
+                        <RotateCcw className="w-3 h-3 text-slate-500" />
+                        <span>Reabrir parte deste membro</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Concluir parte deste membro</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
                 {/* Lista de Campos com Respostas Registradas */}
                 {task.customFields && task.customFields.length > 0 ? (
