@@ -163,11 +163,17 @@ export default function TaskDetailModal({
     return initial;
   });
 
+  // Observação livre e opcional da parte do usuário selecionado
+  const [activeMemberObservacao, setActiveMemberObservacao] = useState<string>(() => {
+    const sub = getMemberSubmission(selectedMemberId);
+    return sub.observacao !== undefined ? sub.observacao : sub.observation || '';
+  });
+
   // Mensagens de validação e feedback
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
 
-  // Sincronizar os valores dos campos sempre que o membro selecionado ou a submissão dele mudar
+  // Sincronizar os valores dos campos e observação sempre que o membro selecionado ou a submissão dele mudar
   const currentMemberSubString = JSON.stringify(task.userSubmissions?.[selectedMemberId] || null);
 
   useEffect(() => {
@@ -177,6 +183,9 @@ export default function TaskDetailModal({
       initial[f.id] = sub.values && sub.values[f.id] !== undefined ? sub.values[f.id] : '';
     });
     setActiveMemberFormValues(initial);
+    setActiveMemberObservacao(
+      sub.observacao !== undefined ? sub.observacao : sub.observation || ''
+    );
     setCompletionError(null);
   }, [selectedMemberId, task.id, currentMemberSubString]);
 
@@ -226,14 +235,18 @@ export default function TaskDetailModal({
 
     // 2. Atualizar submissão do membro
     const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const sub = getMemberSubmission(memberId);
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions || {}),
       [memberId]: {
+        ...sub,
         userId: memberId,
         userName: memberName,
         completed: true,
         completedAt: new Date().toISOString(),
         values: { ...activeMemberFormValues },
+        observacao: activeMemberObservacao.trim() || undefined,
+        observation: activeMemberObservacao.trim() || undefined,
       },
     };
 
@@ -286,6 +299,32 @@ export default function TaskDetailModal({
     }
   };
 
+  // Salvar apenas a observação do usuário sem alterar o status da tarefa
+  const handleSaveMemberObservation = (memberId: string) => {
+    setCompletionError(null);
+    setSuccessFeedback(null);
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const sub = getMemberSubmission(memberId);
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        ...sub,
+        userId: memberId,
+        userName: memberName,
+        values: memberId === selectedMemberId ? { ...activeMemberFormValues } : sub.values || {},
+        observacao: activeMemberObservacao.trim() || undefined,
+        observation: activeMemberObservacao.trim() || undefined,
+      },
+    };
+
+    onUpdateTask({
+      ...task,
+      userSubmissions: updatedSubmissions,
+    });
+
+    setSuccessFeedback(`Observação de ${memberName} salva com sucesso.`);
+  };
+
   // Reabrir a parte do membro para edição
   const handleReopenMemberPortion = (memberId: string) => {
     setCompletionError(null);
@@ -301,6 +340,8 @@ export default function TaskDetailModal({
         userName: memberName,
         completed: false,
         completedAt: undefined,
+        observacao: sub.observacao !== undefined ? sub.observacao : sub.observation,
+        observation: sub.observacao !== undefined ? sub.observacao : sub.observation,
       },
     };
 
@@ -338,6 +379,11 @@ export default function TaskDetailModal({
         ? { ...activeMemberFormValues }
         : sub.values || {};
 
+    const observacaoToUse =
+      memberId === selectedMemberId
+        ? (activeMemberObservacao.trim() || undefined)
+        : (sub.observacao !== undefined ? sub.observacao : sub.observation);
+
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions || {}),
       [memberId]: {
@@ -347,6 +393,8 @@ export default function TaskDetailModal({
         completed: newCompleted,
         completedAt: newCompleted ? new Date().toISOString() : undefined,
         values: valuesToUse,
+        observacao: observacaoToUse,
+        observation: observacaoToUse,
       },
     };
 
@@ -838,6 +886,48 @@ export default function TaskDetailModal({
                         </div>
                       );
                     })}
+
+                    {/* Caixa de Observação Opcional por Usuário */}
+                    <div className="space-y-1.5 pt-2 border-t border-blue-200/60">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Observação da minha parte</span>
+                          <span className="text-[10.5px] font-normal text-slate-400">
+                            (Opcional)
+                          </span>
+                        </label>
+
+                        {!isCurrentSelectedCompleted && activeMemberObservacao.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => handleSaveMemberObservation(selectedMemberId)}
+                            className="text-[11px] text-blue-700 hover:text-blue-800 font-semibold cursor-pointer underline-offset-2 hover:underline"
+                          >
+                            Salvar observação
+                          </button>
+                        )}
+                      </div>
+
+                      <textarea
+                        rows={3}
+                        disabled={isCurrentSelectedCompleted}
+                        placeholder="Escreva uma observação ou comentário opcional sobre a sua parte nesta tarefa..."
+                        value={activeMemberObservacao}
+                        onChange={(e) => {
+                          setActiveMemberObservacao(e.target.value);
+                          setCompletionError(null);
+                        }}
+                        className={`w-full text-xs border rounded-lg px-3 py-2 outline-none resize-y transition-all ${
+                          isCurrentSelectedCompleted
+                            ? 'bg-slate-100 text-slate-600 border-slate-200 cursor-not-allowed'
+                            : 'bg-white text-slate-900 border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20'
+                        }`}
+                      />
+                      <p className="text-[10.5px] text-slate-500">
+                        O preenchimento não é obrigatório. Você pode concluir mesmo sem preencher.
+                      </p>
+                    </div>
                   </div>
 
                   {/* Botão de Concluir a Parte do Usuário */}
@@ -873,28 +963,106 @@ export default function TaskDetailModal({
                   </div>
                 </div>
               ) : (
-                /* Caso a ação não possua campos customizados, permite que o membro conclua sua parte diretamente */
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 text-center space-y-2">
-                  <p className="text-xs text-slate-600">
-                    Esta ação não possui formulário adicional. Marque sua parte como concluída quando finalizar sua atividade.
-                  </p>
-                  {isCurrentSelectedCompleted ? (
-                    <button
-                      type="button"
-                      onClick={() => handleReopenMemberPortion(selectedMemberId)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                    >
-                      Reabrir Minha Parte
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleCompleteMemberPortion(selectedMemberId)}
-                      className="px-4 py-2 text-xs font-bold text-white bg-[#004691] hover:bg-[#00356e] rounded-lg transition-colors cursor-pointer"
-                    >
-                      Marcar Minha Parte como Concluída
-                    </button>
-                  )}
+                /* Caso a ação não possua campos customizados, permite que o membro adicione observação e conclua sua parte diretamente */
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Esta ação não possui formulário adicional. Marque sua parte como concluída quando finalizar sua atividade.
+                    </p>
+                  </div>
+
+                  {/* Indicador de qual usuário está sendo editado */}
+                  <div className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between text-xs">
+                    <span className="text-slate-600">
+                      Responsável:{' '}
+                      <strong className="text-slate-900">
+                        {selectedMemberObj?.name || 'Usuário'}
+                      </strong>
+                    </span>
+                    {isCurrentSelectedCompleted ? (
+                      <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-700">
+                        <Check className="w-3 h-3 stroke-[3]" /> Concluído
+                      </span>
+                    ) : (
+                      <span className="text-[10.5px] text-amber-700 font-semibold">
+                        Pendente
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Caixa de Observação Opcional por Usuário */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Observação da minha parte</span>
+                        <span className="text-[10.5px] font-normal text-slate-400">
+                          (Opcional)
+                        </span>
+                      </label>
+
+                      {!isCurrentSelectedCompleted && activeMemberObservacao.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => handleSaveMemberObservation(selectedMemberId)}
+                          className="text-[11px] text-blue-700 hover:text-blue-800 font-semibold cursor-pointer underline-offset-2 hover:underline"
+                        >
+                          Salvar observação
+                        </button>
+                      )}
+                    </div>
+
+                    <textarea
+                      rows={3}
+                      disabled={isCurrentSelectedCompleted}
+                      placeholder="Escreva uma observação ou comentário opcional sobre a sua parte nesta tarefa..."
+                      value={activeMemberObservacao}
+                      onChange={(e) => {
+                        setActiveMemberObservacao(e.target.value);
+                        setCompletionError(null);
+                      }}
+                      className={`w-full text-xs border rounded-lg px-3 py-2 outline-none resize-y transition-all ${
+                        isCurrentSelectedCompleted
+                          ? 'bg-slate-100 text-slate-600 border-slate-200 cursor-not-allowed'
+                          : 'bg-white text-slate-900 border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20'
+                      }`}
+                    />
+                    <p className="text-[10.5px] text-slate-500">
+                      O preenchimento não é obrigatório.
+                    </p>
+                  </div>
+
+                  {/* Botões de Ação */}
+                  <div className="pt-2">
+                    {isCurrentSelectedCompleted ? (
+                      <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Parte finalizada por este usuário
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleReopenMemberPortion(selectedMemberId)}
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3 text-slate-500" />
+                          <span>Reabrir</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteMemberPortion(selectedMemberId)}
+                        className="w-full py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                        <span>
+                          Salvar e Marcar Minha Parte como Concluída (
+                          {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1495,6 +1663,32 @@ export default function TaskDetailModal({
                     Nenhum campo de formulário configurado nesta ação.
                   </p>
                 )}
+
+                {/* Card de Observação do Responsável no Painel Admin */}
+                <div className="p-3 bg-white border border-gray-200 rounded-lg space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-gray-800 flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                      Observação de {selectedMemberObj?.name || 'Responsável'}
+                    </span>
+                    <span className="text-[10px] text-gray-400">Opcional</span>
+                  </div>
+
+                  {(() => {
+                    const sub = getMemberSubmission(selectedMemberId);
+                    const obs = sub.observacao !== undefined ? sub.observacao : sub.observation;
+
+                    return obs ? (
+                      <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-md text-slate-800 text-xs whitespace-pre-wrap">
+                        {obs}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 italic">
+                        Nenhuma observação registrada por este membro.
+                      </p>
+                    );
+                  })()}
+                </div>
               </div>
 
               {/* TAGs */}

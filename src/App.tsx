@@ -1,11 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import Planner from './components/Planner.tsx';
 import Login from './components/Login.jsx';
+import ResetPassword from './components/ResetPassword.tsx';
 import { supabase } from './supabase.js';
 
 export default function App() {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isResettingPassword, setIsResettingPassword] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.location.pathname.includes('reset-password') ||
+      window.location.hash.includes('type=recovery') ||
+      window.location.search.includes('type=recovery')
+    );
+  });
 
   useEffect(() => {
     // Obter a sessão atual do Supabase
@@ -14,10 +23,13 @@ export default function App() {
       setLoading(false);
     });
 
-    // Ouvir mudanças de autenticação (login, logout, refresh)
+    // Ouvir mudanças de autenticação (login, logout, refresh, password recovery)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsResettingPassword(true);
+      }
       setSession(session);
     });
 
@@ -43,9 +55,33 @@ export default function App() {
     );
   }
 
+  // Rota/Tela dedicada de Redefinição de Senha
+  if (isResettingPassword) {
+    return (
+      <ResetPassword
+        onPasswordResetSuccess={(user) => {
+          setIsResettingPassword(false);
+          if (user) {
+            setSession({ user });
+          }
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, document.title, '/');
+          }
+        }}
+        onCancel={() => {
+          setIsResettingPassword(false);
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, document.title, '/');
+          }
+        }}
+      />
+    );
+  }
+
   if (!session) {
     return <Login onLoginSuccess={(user) => setSession({ user })} />;
   }
 
   return <Planner user={session.user} onLogout={handleLogout} />;
 }
+

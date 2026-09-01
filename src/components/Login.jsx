@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { supabase } from '../supabase.js';
+import ForgotPasswordModal from './ForgotPasswordModal.tsx';
 
 export default function Login({ onLoginSuccess }) {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -148,9 +150,21 @@ export default function Login({ onLoginSuccess }) {
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
-              Senha
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Senha
+              </label>
+              {!isRegisterMode && (
+                <button
+                  id="forgot-password-link"
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(true)}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium hover:underline cursor-pointer focus:outline-none"
+                >
+                  Esqueceu sua senha?
+                </button>
+              )}
+            </div>
             <input
               id="password"
               type="password"
@@ -254,6 +268,13 @@ export default function Login({ onLoginSuccess }) {
           </p>
         </div>
       </div>
+
+      {/* Modal de Esqueci Minha Senha */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        initialEmail={watch('email') || ''}
+      />
     </div>
   );
 }

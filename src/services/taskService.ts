@@ -466,7 +466,8 @@ export const taskService = {
     memberId: string,
     completed: boolean,
     values?: Record<string, string | number>,
-    memberName?: string
+    memberName?: string,
+    observacao?: string
   ): Promise<{
     updatedTask: Task;
     nextRecurrentTask: Task | null;
@@ -486,6 +487,13 @@ export const taskService = {
       values: {},
     };
 
+    const finalObservacao =
+      observacao !== undefined
+        ? observacao
+        : existingSub.observacao !== undefined
+        ? existingSub.observacao
+        : existingSub.observation;
+
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions || {}),
       [memberId]: {
@@ -497,6 +505,8 @@ export const taskService = {
           ? existingSub.completedAt || new Date().toISOString()
           : undefined,
         values: values !== undefined ? values : existingSub.values || {},
+        observacao: finalObservacao,
+        observation: finalObservacao,
       },
     };
 

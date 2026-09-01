@@ -45,6 +45,8 @@ export interface UserTaskSubmission {
   userName?: string;
   completed: boolean;
   completedAt?: string;
+  observacao?: string; // Observação individual opcional sobre a parte do responsável
+  observation?: string; // alias opcional
   values: Record<string, string | number>; // fieldId -> value
 }
 
