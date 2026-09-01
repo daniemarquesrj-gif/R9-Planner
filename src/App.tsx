@@ -9,14 +9,38 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isResettingPassword, setIsResettingPassword] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
+    const url = window.location.href;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const path = window.location.pathname || '';
+
     return (
-      window.location.pathname.includes('reset-password') ||
-      window.location.hash.includes('type=recovery') ||
-      window.location.search.includes('type=recovery')
+      path.includes('reset-password') ||
+      hash.includes('type=recovery') ||
+      search.includes('type=recovery') ||
+      hash.includes('access_token=') && hash.includes('type=recovery') ||
+      search.includes('code=') && search.includes('type=recovery') ||
+      url.includes('recovery')
     );
   });
 
   useEffect(() => {
+    // Verificar se há token de recuperação presente na URL/Hash
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      const path = window.location.pathname || '';
+
+      if (
+        hash.includes('type=recovery') ||
+        search.includes('type=recovery') ||
+        path.includes('reset-password') ||
+        (hash.includes('access_token=') && hash.includes('type=recovery'))
+      ) {
+        setIsResettingPassword(true);
+      }
+    }
+
     // Obter a sessão atual do Supabase
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);

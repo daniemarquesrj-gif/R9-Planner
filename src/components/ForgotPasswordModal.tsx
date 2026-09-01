@@ -36,8 +36,17 @@ export default function ForgotPasswordModal({
     setIsLoading(true);
 
     try {
-      // Redirecionamento configurado conforme o fluxo de reset de senha
-      const redirectToUrl = `${window.location.origin}/reset-password`;
+      // Configuração correta do redirecionamento para o fluxo de reset de senha
+      // Suporta produção em https://r9-planner.vercel.app/ ou o origin do ambiente atual
+      const isProduction =
+        typeof window !== 'undefined' &&
+        (window.location.hostname.includes('vercel.app') ||
+          !window.location.hostname.includes('localhost') && !window.location.hostname.includes('run.app'));
+
+      const redirectToUrl =
+        isProduction
+          ? 'https://r9-planner.vercel.app/'
+          : `${window.location.origin}/`;
 
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
         redirectTo: redirectToUrl,
