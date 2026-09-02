@@ -633,6 +633,9 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     setTasks((prev) => {
       const updatedList = prev.map((t) => (t.id === taskId ? updatedTask : t));
       if (nextRecurrentTask) {
+        if (updatedList.some((t) => t.id === nextRecurrentTask.id)) {
+          return updatedList;
+        }
         return [nextRecurrentTask, ...updatedList];
       }
       return updatedList;

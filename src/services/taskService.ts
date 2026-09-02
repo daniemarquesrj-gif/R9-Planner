@@ -10,6 +10,130 @@ function isValidUUID(val?: string | null): boolean {
 // Canal global de broadcast para sincronização instantânea entre múltiplos usuários
 let realtimeSyncChannel: any = null;
 
+// Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
+const recurrenceLocks = new Set<string>();
+
+/**
+ * Cria a próxima ocorrência de uma tarefa recorrente de forma estritamente atômica e segura.
+ * Realiza verificação de unicidade no Supabase para garantir que nenhuma tarefa com o mesmo
+ * título já exista na mesma data agendada / data de início antes de efetivar qualquer inserção.
+ */
+export async function createNextRecurrentTaskSafely(
+  task: Task,
+  nextDate: string
+): Promise<Task | null> {
+  if (!nextDate || !task.title || !task.title.trim()) {
+    return null;
+  }
+
+  const normalizedTitle = task.title.trim();
+  const lockKey = `${normalizedTitle.toLowerCase()}::${nextDate}`;
+
+  // 1. Trava atômica em memória: se já houver uma requisição em processamento para esse título e data, abortar
+  if (recurrenceLocks.has(lockKey)) {
+    console.warn(
+      `[Recorrência] Criação já em andamento para "${normalizedTitle}" na data ${nextDate}. Disparo duplicado ignorado com sucesso.`
+    );
+    return null;
+  }
+
+  recurrenceLocks.add(lockKey);
+
+  try {
+    // 2. Consulta de Unicidade no Supabase:
+    // Verifica se já existe uma tarefa com o mesmo título cadastrada para aquela exata mesma data
+    const { data: existingMatches, error: queryError } = await supabase
+      .from('tarefas')
+      .select('id, titulo, data_agendada, data_inicio, status')
+      .ilike('titulo', normalizedTitle);
+
+    if (queryError) {
+      console.warn(
+        '[Recorrência] Aviso ao verificar duplicidade no Supabase (prosseguindo com cautela):',
+        queryError
+      );
+    }
+
+    // Checar se algum dos registros existentes coincide com a data de destino
+    const alreadyExists = existingMatches?.some((row: any) => {
+      const rowScheduled = row.data_agendada
+        ? String(row.data_agendada).split('T')[0].trim()
+        : null;
+      const rowStart = row.data_inicio
+        ? String(row.data_inicio).split('T')[0].trim()
+        : null;
+
+      return rowScheduled === nextDate || rowStart === nextDate;
+    });
+
+    if (alreadyExists) {
+      console.info(
+        `[Recorrência] A tarefa "${normalizedTitle}" já existe na data ${nextDate}. Nenhuma duplicata foi criada.`
+      );
+      return null;
+    }
+
+    // 3. Extrair a lista completa de múltiplos responsáveis para herança total
+    const allAssigneeIds =
+      task.assignedToIds && task.assignedToIds.length > 0
+        ? [...task.assignedToIds]
+        : task.assignedTo
+        ? [task.assignedTo]
+        : [];
+
+    // 4. Preparar payload da nova ocorrência limpa
+    const recurrentPayload = mapTaskToDbPayload({
+      title: normalizedTitle,
+      description: task.description || '',
+      priority: task.priority || 'Alta',
+      recurrence: task.recurrence,
+      recurrenceDays: task.recurrenceDays || [],
+      bucket: task.bucket || 'Operacional',
+      assignedTo: allAssigneeIds[0] || null,
+      assignedToIds: allAssigneeIds,
+      startDate: nextDate,
+      endDate: nextDate,
+      scheduledDate: nextDate,
+      status: 'pendente',
+      tags: task.tags || [],
+      customFields: task.customFields || [],
+      customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
+      userSubmissions: {}, // Iniciar submissões limpas para os responsáveis
+      comments: [], // Iniciar sem comentários históricos
+    });
+
+    // 5. Inserir a nova ocorrência única no Supabase
+    const { data: recurrentData, error: recurrentError } = await supabase
+      .from('tarefas')
+      .insert([recurrentPayload])
+      .select();
+
+    if (recurrentError) {
+      console.error(
+        'Erro ao criar próxima instância recorrente no Supabase:',
+        recurrentError
+      );
+      return null;
+    }
+
+    if (recurrentData && recurrentData.length > 0) {
+      const createdTask = mapDbRowToTask(recurrentData[0]);
+      broadcastTaskMutation('created', createdTask);
+      return createdTask;
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Erro inesperado na rotina de criação recorrente:', err);
+    return null;
+  } finally {
+    // Manter a trava por 2.5s para blindar contra múltiplos cliques rápidos ou loops
+    setTimeout(() => {
+      recurrenceLocks.delete(lockKey);
+    }, 2500);
+  }
+}
+
 export function getTaskSyncChannel() {
   if (!realtimeSyncChannel) {
     realtimeSyncChannel = supabase.channel('tarefas-planner-sync-hub', {
@@ -384,7 +508,7 @@ export const taskService = {
         broadcastTaskMutation('updated', updatedTask);
       }
 
-      // 2. Verificação de Recorrência ao marcar como 'concluida'
+      // 2. Verificação de Recorrência ao marcar como 'concluida' (com verificação rigorosa de duplicidade)
       const hasRecurrence =
         task.recurrence &&
         task.recurrence !== 'Nenhuma' &&
@@ -396,47 +520,8 @@ export const taskService = {
         const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
 
         if (nextDate) {
-          // Extrair a lista completa de múltiplos responsáveis para herança total
-          const allAssigneeIds =
-            task.assignedToIds && task.assignedToIds.length > 0
-              ? [...task.assignedToIds]
-              : task.assignedTo
-              ? [task.assignedTo]
-              : [];
-
-          // Criação da Nova Instância no Supabase herdando todos os responsáveis
-          const recurrentPayload = mapTaskToDbPayload({
-            title: task.title,
-            description: task.description || '',
-            priority: task.priority || 'Alta',
-            recurrence: task.recurrence,
-            recurrenceDays: task.recurrenceDays || [],
-            bucket: task.bucket || 'Operacional',
-            assignedTo: allAssigneeIds[0] || null,
-            assignedToIds: allAssigneeIds,
-            startDate: nextDate,
-            endDate: nextDate,
-            scheduledDate: nextDate,
-            status: 'pendente',
-            tags: task.tags || [],
-            customFields: task.customFields || [],
-            customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
-            userSubmissions: {}, // Iniciar submissões limpas para os mesmos responsáveis
-            comments: [], // Iniciar sem comentários históricos
-          });
-
-          // Inserir nova tarefa no Supabase (status: 'pendente')
-          const { data: recurrentData, error: recurrentError } = await supabase
-            .from('tarefas')
-            .insert([recurrentPayload])
-            .select();
-
-          if (!recurrentError && recurrentData && recurrentData.length > 0) {
-            nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
-            broadcastTaskMutation('created', nextRecurrentTask);
-          } else if (recurrentError) {
-            console.error('Erro ao criar próxima instância recorrente no Supabase:', recurrentError);
-          }
+          // Criação atômica e segura com consulta prévia no Supabase para evitar duplicatas
+          nextRecurrentTask = await createNextRecurrentTaskSafely(task, nextDate);
         }
       }
 
@@ -585,7 +670,7 @@ export const taskService = {
         broadcastTaskMutation('updated', updatedTask);
       }
 
-      // Verificação de Recorrência se todos concluíram
+      // Verificação de Recorrência se todos concluíram (com verificação rigorosa de duplicidade)
       const hasRecurrence =
         task.recurrence &&
         task.recurrence !== 'Nenhuma' &&
@@ -596,44 +681,8 @@ export const taskService = {
         const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
 
         if (nextDate) {
-          const allAssigneeIds =
-            task.assignedToIds && task.assignedToIds.length > 0
-              ? [...task.assignedToIds]
-              : task.assignedTo
-              ? [task.assignedTo]
-              : [];
-
-          const recurrentPayload = mapTaskToDbPayload({
-            title: task.title,
-            description: task.description || '',
-            priority: task.priority || 'Alta',
-            recurrence: task.recurrence,
-            recurrenceDays: task.recurrenceDays || [],
-            bucket: task.bucket || 'Operacional',
-            assignedTo: allAssigneeIds[0] || null,
-            assignedToIds: allAssigneeIds,
-            startDate: nextDate,
-            endDate: nextDate,
-            scheduledDate: nextDate,
-            status: 'pendente',
-            tags: task.tags || [],
-            customFields: task.customFields || [],
-            customFieldValues: [],
-            userSubmissions: {},
-            comments: [],
-          });
-
-          const { data: recurrentData, error: recurrentError } = await supabase
-            .from('tarefas')
-            .insert([recurrentPayload])
-            .select();
-
-          if (!recurrentError && recurrentData && recurrentData.length > 0) {
-            nextRecurrentTask = mapDbRowToTask(recurrentData[0]);
-            broadcastTaskMutation('created', nextRecurrentTask);
-          } else if (recurrentError) {
-            console.error('Erro ao criar próxima instância recorrente no Supabase:', recurrentError);
-          }
+          // Criação atômica e segura com consulta prévia no Supabase para evitar duplicatas
+          nextRecurrentTask = await createNextRecurrentTaskSafely(task, nextDate);
         }
       }
 
@@ -689,6 +738,16 @@ export const taskService = {
     } catch (err) {
       return { data: task, error: err };
     }
+  },
+
+  /**
+   * Cria a próxima ocorrência recorrente de forma atômica e segura com verificação de duplicidade.
+   */
+  async createNextRecurrentTaskSafely(
+    task: Task,
+    nextDate: string
+  ): Promise<Task | null> {
+    return createNextRecurrentTaskSafely(task, nextDate);
   },
 
   /**
