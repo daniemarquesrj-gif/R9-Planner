@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Task, TeamMember, UserRole, TagBucket } from '../types.ts';
 import { MONTH_NAMES_PT } from '../utils/dateUtils.ts';
+import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import TaskCard from './TaskCard.tsx';
 import { Tag } from 'lucide-react';
 
@@ -150,8 +151,7 @@ export default function LeftSidebar({
 
   // --- DADOS PARA MEMBRO: MINHAS AÇÕES & MÉTRICAS PESSOAIS ---
   const isUserTask = (t: Task) =>
-    (t.assignedToIds && t.assignedToIds.includes(currentUser.id)) ||
-    t.assignedTo === currentUser.id;
+    isUserAssignedToTask(t, currentUser, undefined, teamMembers);
 
   const myTasks = tasks.filter(isUserTask);
   const myTodayTasks = myTasks.filter((t) => t.scheduledDate === todayISO);

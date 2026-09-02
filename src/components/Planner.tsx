@@ -22,6 +22,7 @@ import {
   formatISO,
   getNextRecurrenceDate,
 } from '../utils/dateUtils.ts';
+import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import { taskService, mapDbRowToTask } from '../services/taskService.ts';
 import { userService, UserProfile } from '../services/userService.ts';
 import { tagService } from '../services/tagService.ts';
@@ -468,12 +469,12 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   // Contagens para a barra de navegação
   const navCounts = useMemo(() => {
     const isUserTask = (t: Task) =>
-      (t.assignedToIds && t.assignedToIds.includes(currentUser.id)) ||
-      t.assignedTo === currentUser.id;
+      isUserAssignedToTask(t, currentUser, user, teamMembers);
 
+    // "Meu dia" estritamente filtra tarefas agendadas para hoje nas quais o usuário logado é responsável
     const myDayCount = tasks.filter((t) => {
       const isToday = t.scheduledDate === todayISO;
-      return userRole === 'admin' ? isToday : isToday && isUserTask(t);
+      return isToday && isUserTask(t);
     }).length;
 
     const myTasksCount = tasks.filter(isUserTask).length;
@@ -488,7 +489,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       urgent: urgentCount,
       unscheduled: unscheduledCount,
     };
-  }, [tasks, todayISO, currentUser.id, userRole]);
+  }, [tasks, todayISO, currentUser, user, teamMembers]);
 
   // Cálculo das datas da semana atual
   const weekDates = useMemo(
@@ -515,21 +516,21 @@ export default function Planner({ user, onLogout }: PlannerProps) {
         return false;
       }
 
+      const isAssigned = isUserAssignedToTask(task, currentUser, user, teamMembers);
+
       // Filtro por Navegação (Meu Dia / Minhas Tarefas / Urgente / Planejador Geral)
       if (navFilter === 'my_tasks') {
-        const isAssigned =
-          (task.assignedToIds && task.assignedToIds.includes(currentUser.id)) ||
-          task.assignedTo === currentUser.id;
         if (!isAssigned) return false;
       } else if (navFilter === 'my_day') {
-        if (task.scheduledDate !== todayISO) return false;
+        // "Meu dia" exibe estritamente apenas as tarefas agendadas para hoje E atribuídas ao usuário logado
+        if (task.scheduledDate !== todayISO || !isAssigned) return false;
       } else if (navFilter === 'urgent') {
         if (task.priority !== 'Urgente' && task.priority !== 'Alta') return false;
       }
 
       return true;
     });
-  }, [tasks, selectedBucket, navFilter, currentUser.id, todayISO]);
+  }, [tasks, selectedBucket, navFilter, currentUser, user, teamMembers, todayISO]);
 
   // Navegação de datas (Anterior / Próximo / Hoje)
   const handlePrev = () => {

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Task, TeamMember } from '../types.ts';
 import { formatISO } from '../utils/dateUtils.ts';
+import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 
 interface MemberPendingTasksPanelProps {
   tasks: Task[];
@@ -34,8 +35,8 @@ export default function MemberPendingTasksPanel({
 }: MemberPendingTasksPanelProps) {
   const [filterMode, setFilterMode] = useState<'all' | 'today' | 'urgent'>('all');
 
-  // Filtrar apenas tarefas atribuídas ao usuário logado
-  const myTasks = tasks.filter((t) => t.assignedTo === currentUser.id);
+  // Filtrar apenas tarefas atribuídas ao usuário logado (com suporte a múltiplos responsáveis)
+  const myTasks = tasks.filter((t) => isUserAssignedToTask(t, currentUser));
 
   // Filtrar conforme o modo selecionado
   const filteredTasks = myTasks.filter((t) => {
