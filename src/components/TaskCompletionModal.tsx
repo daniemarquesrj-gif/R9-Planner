@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Lock, FileText, Check } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Lock, FileText, Check, Loader2 } from 'lucide-react';
 import { Task, CustomFieldValue } from '../types.ts';
 
 interface TaskCompletionModalProps {
   isOpen: boolean;
   task: Task | null;
   onClose: () => void;
-  onConfirmComplete: (taskId: string, filledValues: CustomFieldValue[]) => void;
+  onConfirmComplete: (taskId: string, filledValues: CustomFieldValue[]) => Promise<void> | void;
 }
 
 export default function TaskCompletionModal({
@@ -22,25 +22,45 @@ export default function TaskCompletionModal({
     const initial: Record<string, string | number> = {};
     task.customFields?.forEach((field) => {
       const existing = task.customFieldValues?.find((v) => v.fieldId === field.id);
-      initial[field.id] = existing !== undefined ? existing.value : '';
+      if (existing !== undefined && existing.value !== null && existing.value !== undefined) {
+        initial[field.id] =
+          field.type === 'number'
+            ? existing.value === ''
+              ? ''
+              : Number(existing.value)
+            : String(existing.value);
+      } else {
+        initial[field.id] = '';
+      }
     });
     return initial;
   });
 
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleInputChange = (fieldId: string, value: string, type: 'text' | 'number') => {
     setValidationError(null);
     if (type === 'number') {
-      const parsed = value === '' ? '' : Number(value);
-      setFormValues((prev) => ({ ...prev, [fieldId]: parsed }));
+      const trimmed = value.trim();
+      if (trimmed === '') {
+        setFormValues((prev) => ({ ...prev, [fieldId]: '' }));
+      } else {
+        const normalized = trimmed.replace(',', '.');
+        const num = Number(normalized);
+        setFormValues((prev) => ({
+          ...prev,
+          [fieldId]: isNaN(num) ? normalized : num,
+        }));
+      }
     } else {
       setFormValues((prev) => ({ ...prev, [fieldId]: value }));
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setValidationError(null);
 
     // Validar se todos os campos obrigatórios foram preenchidos
@@ -48,17 +68,34 @@ export default function TaskCompletionModal({
     const filledValues: CustomFieldValue[] = [];
 
     task.customFields?.forEach((field) => {
-      const val = formValues[field.id];
-      if (field.required) {
-        if (val === undefined || val === null || val === '') {
-          missingFields.push(field.label);
-        }
+      const rawVal = formValues[field.id];
+      const isNum = field.type === 'number';
+
+      // Validação estrita: 0 (zero) é um valor válido! Apenas vazios, null e undefined contam como não preenchido
+      const isFilled = rawVal !== undefined && rawVal !== null && rawVal !== '';
+
+      if (field.required && !isFilled) {
+        missingFields.push(field.label);
       }
-      if (val !== undefined && val !== null && val !== '') {
-        filledValues.push({
-          fieldId: field.id,
-          value: val,
-        });
+
+      if (isFilled) {
+        if (isNum) {
+          const normalized = typeof rawVal === 'string' ? rawVal.trim().replace(',', '.') : rawVal;
+          const num = Number(normalized);
+          if (isNaN(num)) {
+            missingFields.push(`${field.label} (deve ser um número válido)`);
+          } else {
+            filledValues.push({
+              fieldId: field.id,
+              value: num, // Garantir explicitamente número, inclusive 0
+            });
+          }
+        } else {
+          filledValues.push({
+            fieldId: field.id,
+            value: String(rawVal).trim(), // Textos limpos
+          });
+        }
       }
     });
 
@@ -69,8 +106,19 @@ export default function TaskCompletionModal({
       return;
     }
 
-    onConfirmComplete(task.id, filledValues);
-    onClose();
+    try {
+      setIsSubmitting(true);
+      await onConfirmComplete(task.id, filledValues);
+      onClose();
+    } catch (err: any) {
+      console.error('Erro ao salvar respostas no Supabase:', err);
+      setValidationError(
+        err?.message ||
+          'Falha ao salvar respostas no Supabase. O formulário permanece aberto para você não perder os dados. Verifique a conexão e tente novamente.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -154,17 +202,28 @@ export default function TaskCompletionModal({
           <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onClose}
-              className="px-3.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <Check className="w-3.5 h-3.5" />
-              <span>Salvar e Concluir</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Salvando no Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Salvar e Concluir</span>
+                </>
+              )}
             </button>
           </div>
         </form>

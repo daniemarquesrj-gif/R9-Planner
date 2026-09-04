@@ -21,6 +21,7 @@ import {
   Users,
   CheckSquare,
   RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import {
   Task,
@@ -42,7 +43,7 @@ interface TaskDetailModalProps {
   task: Task | null;
   isOpen: boolean;
   onClose: () => void;
-  onUpdateTask: (updated: Task) => void;
+  onUpdateTask: (updated: Task) => Promise<any> | void;
   onDeleteTask: (taskId: string) => void;
   onOpenCompletionModal?: (task: Task) => void;
   teamMembers: TeamMember[];
@@ -158,7 +159,28 @@ export default function TaskDetailModal({
     const sub = getMemberSubmission(selectedMemberId);
     const initial: Record<string, string | number> = {};
     task.customFields?.forEach((f) => {
-      initial[f.id] = sub.values && sub.values[f.id] !== undefined ? sub.values[f.id] : '';
+      // 1. Prioriza o valor submetido pelo membro selecionado
+      if (sub.values && sub.values[f.id] !== undefined && sub.values[f.id] !== null) {
+        initial[f.id] =
+          f.type === 'number'
+            ? sub.values[f.id] === ''
+              ? ''
+              : Number(sub.values[f.id])
+            : sub.values[f.id];
+      } else {
+        // 2. Fallback para valor global da tarefa (se existir)
+        const globalVal = task.customFieldValues?.find((v) => v.fieldId === f.id);
+        if (globalVal !== undefined && globalVal.value !== null && globalVal.value !== undefined) {
+          initial[f.id] =
+            f.type === 'number'
+              ? globalVal.value === ''
+                ? ''
+                : Number(globalVal.value)
+              : globalVal.value;
+        } else {
+          initial[f.id] = '';
+        }
+      }
     });
     return initial;
   });
@@ -172,6 +194,7 @@ export default function TaskDetailModal({
   // Mensagens de validação e feedback
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Sincronizar os valores dos campos e observação sempre que o membro selecionado ou a submissão dele mudar
   const currentMemberSubString = JSON.stringify(task.userSubmissions?.[selectedMemberId] || null);
@@ -180,7 +203,26 @@ export default function TaskDetailModal({
     const sub = getMemberSubmission(selectedMemberId);
     const initial: Record<string, string | number> = {};
     task.customFields?.forEach((f) => {
-      initial[f.id] = sub.values && sub.values[f.id] !== undefined ? sub.values[f.id] : '';
+      if (sub.values && sub.values[f.id] !== undefined && sub.values[f.id] !== null) {
+        initial[f.id] =
+          f.type === 'number'
+            ? sub.values[f.id] === ''
+              ? ''
+              : Number(sub.values[f.id])
+            : sub.values[f.id];
+      } else {
+        const globalVal = task.customFieldValues?.find((v) => v.fieldId === f.id);
+        if (globalVal !== undefined && globalVal.value !== null && globalVal.value !== undefined) {
+          initial[f.id] =
+            f.type === 'number'
+              ? globalVal.value === ''
+                ? ''
+                : Number(globalVal.value)
+              : globalVal.value;
+        } else {
+          initial[f.id] = '';
+        }
+      }
     });
     setActiveMemberFormValues(initial);
     setActiveMemberObservacao(
@@ -204,25 +246,159 @@ export default function TaskDetailModal({
   const totalMembersCount = effectiveAssigneeIds.length;
   const allAssignedCompleted = completedMembersCount >= totalMembersCount;
 
-  // Atualizar input do formulário do membro selecionado
+  // Atualizar input do formulário do membro selecionado com sanitização estrita
   const handleInputChange = (fieldId: string, val: string, type: 'number' | 'text') => {
     setCompletionError(null);
     setSuccessFeedback(null);
-    const parsed = type === 'number' ? (val === '' ? '' : Number(val)) : val;
-    setActiveMemberFormValues((prev) => ({ ...prev, [fieldId]: parsed }));
+    if (type === 'number') {
+      const trimmed = val.trim();
+      if (trimmed === '') {
+        setActiveMemberFormValues((prev) => ({ ...prev, [fieldId]: '' }));
+      } else {
+        const normalized = trimmed.replace(',', '.');
+        const num = Number(normalized);
+        setActiveMemberFormValues((prev) => ({
+          ...prev,
+          [fieldId]: isNaN(num) ? normalized : num,
+        }));
+      }
+    } else {
+      setActiveMemberFormValues((prev) => ({ ...prev, [fieldId]: val }));
+    }
   };
 
-  // Submeter e finalizar a parte do usuário selecionado
-  const handleCompleteMemberPortion = (memberId: string) => {
+  // Helper para consolidar valores das respostas mantendo 0 e números válidos
+  const calculateConsolidatedValues = (
+    submissions: Record<string, UserTaskSubmission>
+  ): CustomFieldValue[] => {
+    const consolidated: CustomFieldValue[] = [];
+    task.customFields?.forEach((f) => {
+      let sum = 0;
+      const isNum = f.type === 'number';
+      let hasAny = false;
+
+      Object.values(submissions).forEach((s) => {
+        if (
+          s.values &&
+          s.values[f.id] !== undefined &&
+          s.values[f.id] !== null &&
+          s.values[f.id] !== ''
+        ) {
+          hasAny = true;
+          if (isNum) {
+            const raw = s.values[f.id];
+            const normalized = typeof raw === 'string' ? raw.trim().replace(',', '.') : raw;
+            const parsed = Number(normalized);
+            sum = sum + (isNaN(parsed) ? 0 : parsed);
+          } else {
+            sum = (s.values[f.id] as any);
+          }
+        }
+      });
+
+      if (hasAny) {
+        consolidated.push({
+          fieldId: f.id,
+          value: isNum ? Number(sum) : String(sum).trim(),
+        });
+      }
+    });
+    return consolidated;
+  };
+
+  // Salvar respostas como rascunho sem marcar como concluído
+  const handleSaveMemberResponses = async (memberId: string) => {
+    if (isSaving) return;
     setCompletionError(null);
     setSuccessFeedback(null);
 
-    // 1. Validar campos obrigatórios
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const sub = getMemberSubmission(memberId);
+
+    // Sanitizar valores preenchidos
+    const sanitizedValues: Record<string, string | number> = {};
+    task.customFields?.forEach((f) => {
+      const raw = activeMemberFormValues[f.id];
+      if (raw !== undefined && raw !== null && raw !== '') {
+        if (f.type === 'number') {
+          const num = typeof raw === 'string' ? Number(raw.trim().replace(',', '.')) : Number(raw);
+          sanitizedValues[f.id] = isNaN(num) ? 0 : num;
+        } else {
+          sanitizedValues[f.id] = String(raw).trim();
+        }
+      } else {
+        sanitizedValues[f.id] = '';
+      }
+    });
+
+    const updatedSubmissions: Record<string, UserTaskSubmission> = {
+      ...(task.userSubmissions || {}),
+      [memberId]: {
+        ...sub,
+        userId: memberId,
+        userName: memberName,
+        values: sanitizedValues,
+        observacao: activeMemberObservacao.trim() || undefined,
+        observation: activeMemberObservacao.trim() || undefined,
+      },
+    };
+
+    const consolidated = calculateConsolidatedValues(updatedSubmissions);
+
+    try {
+      setIsSaving(true);
+      await onUpdateTask({
+        ...task,
+        userSubmissions: updatedSubmissions,
+        customFieldValues: consolidated.length > 0 ? consolidated : task.customFieldValues,
+      });
+      setSuccessFeedback(`Respostas de ${memberName} salvas com sucesso no Supabase.`);
+    } catch (err: any) {
+      console.error('Erro ao salvar respostas no Supabase:', err);
+      setCompletionError(
+        err?.message ||
+          'Falha ao salvar respostas no Supabase. O formulário permanece aberto para você não perder os dados. Tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Submeter e finalizar a parte do usuário selecionado
+  const handleCompleteMemberPortion = async (memberId: string) => {
+    if (isSaving) return;
+    setCompletionError(null);
+    setSuccessFeedback(null);
+
+    // 1. Validar campos obrigatórios e sanitizar
     const missing: string[] = [];
+    const sanitizedValues: Record<string, string | number> = {};
+
     task.customFields?.forEach((field) => {
-      const val = activeMemberFormValues[field.id];
-      if (field.required && (val === undefined || val === null || val === '')) {
+      const rawVal = activeMemberFormValues[field.id];
+      const isNum = field.type === 'number';
+
+      // 0 (zero) é estritamente válido! Apenas undefined, null ou string vazia '' contam como não preenchido
+      const isFilled = rawVal !== undefined && rawVal !== null && rawVal !== '';
+
+      if (field.required && !isFilled) {
         missing.push(field.label);
+      }
+
+      if (isFilled) {
+        if (isNum) {
+          const normalized = typeof rawVal === 'string' ? rawVal.trim().replace(',', '.') : rawVal;
+          const num = Number(normalized);
+          if (isNaN(num)) {
+            missing.push(`${field.label} (deve ser um número válido)`);
+          } else {
+            sanitizedValues[field.id] = num; // Número explícito, inclusive 0
+          }
+        } else {
+          sanitizedValues[field.id] = String(rawVal).trim();
+        }
+      } else {
+        sanitizedValues[field.id] = '';
       }
     });
 
@@ -244,65 +420,67 @@ export default function TaskDetailModal({
         userName: memberName,
         completed: true,
         completedAt: new Date().toISOString(),
-        values: { ...activeMemberFormValues },
+        values: sanitizedValues,
         observacao: activeMemberObservacao.trim() || undefined,
         observation: activeMemberObservacao.trim() || undefined,
       },
     };
 
-    // 3. Consolidar valores para customFieldValues (compatibilidade)
-    const consolidatedValues: CustomFieldValue[] = [];
-    task.customFields?.forEach((f) => {
-      // Se tiver mais de uma submissão somar ou pegar o último
-      let sum: number | string = 0;
-      let isNum = f.type === 'number';
-      let hasAny = false;
-
-      Object.values(updatedSubmissions).forEach((s) => {
-        if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
-          hasAny = true;
-          if (isNum) {
-            sum = Number(sum) + Number(s.values[f.id]);
-          } else {
-            sum = String(s.values[f.id]);
-          }
-        }
-      });
-
-      if (hasAny) {
-        consolidatedValues.push({ fieldId: f.id, value: sum });
-      }
-    });
+    // 3. Consolidar valores para customFieldValues de forma estrita
+    const consolidatedValues = calculateConsolidatedValues(updatedSubmissions);
 
     // 4. Verificar se todos os responsáveis completaram
     const willAllBeCompleted = effectiveAssigneeIds.every(
       (id) => updatedSubmissions[id]?.completed === true
     );
+    const willAnyBeCompleted = effectiveAssigneeIds.some(
+      (id) => updatedSubmissions[id]?.completed === true
+    );
 
-    const newStatus: TaskStatus = willAllBeCompleted ? 'concluida' : 'em_andamento';
+    const newStatus: TaskStatus = willAllBeCompleted
+      ? 'concluida'
+      : willAnyBeCompleted
+      ? 'em_andamento'
+      : 'pendente';
 
-    onUpdateTask({
+    const updatedTask: Task = {
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
-      customFieldValues: consolidatedValues,
-    });
+      customFieldValues:
+        consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
+    };
 
-    if (willAllBeCompleted) {
-      setSuccessFeedback(
-        'Todos os responsáveis concluíram suas partes! A tarefa foi marcada como Concluída.'
+    try {
+      setIsSaving(true);
+      await onUpdateTask(updatedTask);
+
+      if (willAllBeCompleted) {
+        setSuccessFeedback(
+          'Todos os responsáveis concluíram suas partes! A tarefa foi marcada como Concluída.'
+        );
+      } else {
+        setSuccessFeedback(
+          `Formulário de ${memberName} salvo e concluído com sucesso (${completedMembersCount + 1}/${totalMembersCount} concluídos). Aguardando os demais responsáveis.`
+        );
+      }
+    } catch (err: any) {
+      console.error('Erro ao salvar e finalizar parte do membro no Supabase:', err);
+      setCompletionError(
+        err?.message ||
+          'Falha ao salvar conclusão no Supabase. O formulário não foi fechado para evitar perda de dados. Tente novamente.'
       );
-    } else {
-      setSuccessFeedback(
-        `Formulário de ${memberName} concluído com sucesso (${completedMembersCount + 1}/${totalMembersCount} concluídos). Aguardando os demais responsáveis.`
-      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // Salvar apenas a observação do usuário sem alterar o status da tarefa
-  const handleSaveMemberObservation = (memberId: string) => {
+  const handleSaveMemberObservation = async (memberId: string) => {
+    if (isSaving) return;
     setCompletionError(null);
     setSuccessFeedback(null);
+
     const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
     const sub = getMemberSubmission(memberId);
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
@@ -317,16 +495,27 @@ export default function TaskDetailModal({
       },
     };
 
-    onUpdateTask({
-      ...task,
-      userSubmissions: updatedSubmissions,
-    });
-
-    setSuccessFeedback(`Observação de ${memberName} salva com sucesso.`);
+    try {
+      setIsSaving(true);
+      await onUpdateTask({
+        ...task,
+        userSubmissions: updatedSubmissions,
+      });
+      setSuccessFeedback(`Observação de ${memberName} salva com sucesso no Supabase.`);
+    } catch (err: any) {
+      console.error('Erro ao salvar observação no Supabase:', err);
+      setCompletionError(
+        err?.message ||
+          'Falha ao salvar observação no Supabase. Tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Reabrir a parte do membro para edição
-  const handleReopenMemberPortion = (memberId: string) => {
+  const handleReopenMemberPortion = async (memberId: string) => {
+    if (isSaving) return;
     setCompletionError(null);
     setSuccessFeedback(null);
 
@@ -351,21 +540,31 @@ export default function TaskDetailModal({
     );
     const newStatus: TaskStatus = willAnyBeCompleted ? 'em_andamento' : 'pendente';
 
-    onUpdateTask({
-      ...task,
-      status: newStatus,
-      userSubmissions: updatedSubmissions,
-    });
-
-    setSuccessFeedback(`Parte de ${memberName} reaberta como pendente.`);
+    try {
+      setIsSaving(true);
+      await onUpdateTask({
+        ...task,
+        status: newStatus,
+        userSubmissions: updatedSubmissions,
+      });
+      setSuccessFeedback(`Parte de ${memberName} reaberta como pendente no Supabase.`);
+    } catch (err: any) {
+      console.error('Erro ao reabrir parte do membro no Supabase:', err);
+      setCompletionError(
+        err?.message || 'Falha ao reabrir parte do membro no Supabase. Tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Ação rápida do Administrador para finalizar ou reabrir apenas a parte de um responsável específico
-  const handleAdminToggleMemberCompletion = (
+  const handleAdminToggleMemberCompletion = async (
     memberId: string,
     e?: React.MouseEvent
   ) => {
     if (e) e.stopPropagation();
+    if (isSaving) return;
     setCompletionError(null);
     setSuccessFeedback(null);
 
@@ -399,27 +598,7 @@ export default function TaskDetailModal({
     };
 
     // Consolidar valores para customFieldValues (compatibilidade)
-    const consolidatedValues: CustomFieldValue[] = [];
-    task.customFields?.forEach((f) => {
-      let sum: number | string = 0;
-      const isNum = f.type === 'number';
-      let hasAny = false;
-
-      Object.values(updatedSubmissions).forEach((s) => {
-        if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
-          hasAny = true;
-          if (isNum) {
-            sum = Number(sum) + Number(s.values[f.id]);
-          } else {
-            sum = String(s.values[f.id]);
-          }
-        }
-      });
-
-      if (hasAny) {
-        consolidatedValues.push({ fieldId: f.id, value: sum });
-      }
-    });
+    const consolidatedValues = calculateConsolidatedValues(updatedSubmissions);
 
     // Recalcular status global
     const willAllBeCompleted = effectiveAssigneeIds.every(
@@ -435,25 +614,36 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
-    onUpdateTask({
-      ...task,
-      status: newStatus,
-      userSubmissions: updatedSubmissions,
-      customFieldValues: consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
-    });
+    try {
+      setIsSaving(true);
+      await onUpdateTask({
+        ...task,
+        status: newStatus,
+        userSubmissions: updatedSubmissions,
+        customFieldValues:
+          consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
+      });
 
-    if (newCompleted) {
-      if (willAllBeCompleted) {
-        setSuccessFeedback(
-          `Parte de ${memberName} finalizada! Todos os responsáveis concluíram e a tarefa foi finalizada.`
-        );
+      if (newCompleted) {
+        if (willAllBeCompleted) {
+          setSuccessFeedback(
+            `Parte de ${memberName} finalizada! Todos os responsáveis concluíram e a tarefa foi finalizada no Supabase.`
+          );
+        } else {
+          setSuccessFeedback(
+            `Parte de ${memberName} finalizada com sucesso pelo Administrador no Supabase.`
+          );
+        }
       } else {
-        setSuccessFeedback(
-          `Parte de ${memberName} finalizada com sucesso pelo administrador.`
-        );
+        setSuccessFeedback(`Parte de ${memberName} reaberta como pendente no Supabase.`);
       }
-    } else {
-      setSuccessFeedback(`Parte de ${memberName} reaberta como pendente.`);
+    } catch (err: any) {
+      console.error('Erro ao atualizar status do membro no Supabase:', err);
+      setCompletionError(
+        err?.message || 'Falha ao atualizar status no Supabase. Tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -940,25 +1130,51 @@ export default function TaskDetailModal({
                         </span>
                         <button
                           type="button"
+                          disabled={isSaving}
                           onClick={() => handleReopenMemberPortion(selectedMemberId)}
-                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
                         >
-                          <RotateCcw className="w-3 h-3 text-slate-500" />
+                          {isSaving ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+                          ) : (
+                            <RotateCcw className="w-3 h-3 text-slate-500" />
+                          )}
                           <span>Reabrir</span>
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleCompleteMemberPortion(selectedMemberId)}
-                        className="w-full py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Check className="w-4 h-4 stroke-[2.5]" />
-                        <span>
-                          Salvar e Concluir Minha Parte (
-                          {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
-                        </span>
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => handleSaveMemberResponses(selectedMemberId)}
+                          className="px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold border border-slate-300 rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" /> : null}
+                          <span>Salvar Respostas</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => handleCompleteMemberPortion(selectedMemberId)}
+                          className="flex-1 py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-white" />
+                              <span>Salvando no Supabase...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-4 h-4 stroke-[2.5]" />
+                              <span>
+                                Salvar e Concluir Minha Parte (
+                                {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1004,8 +1220,9 @@ export default function TaskDetailModal({
                       {!isCurrentSelectedCompleted && activeMemberObservacao.trim() && (
                         <button
                           type="button"
+                          disabled={isSaving}
                           onClick={() => handleSaveMemberObservation(selectedMemberId)}
-                          className="text-[11px] text-blue-700 hover:text-blue-800 font-semibold cursor-pointer underline-offset-2 hover:underline"
+                          className="text-[11px] text-blue-700 hover:text-blue-800 font-semibold cursor-pointer underline-offset-2 hover:underline disabled:opacity-50"
                         >
                           Salvar observação
                         </button>
@@ -1014,7 +1231,7 @@ export default function TaskDetailModal({
 
                     <textarea
                       rows={3}
-                      disabled={isCurrentSelectedCompleted}
+                      disabled={isCurrentSelectedCompleted || isSaving}
                       placeholder="Escreva uma observação ou comentário opcional sobre a sua parte nesta tarefa..."
                       value={activeMemberObservacao}
                       onChange={(e) => {
@@ -1042,25 +1259,53 @@ export default function TaskDetailModal({
                         </span>
                         <button
                           type="button"
+                          disabled={isSaving}
                           onClick={() => handleReopenMemberPortion(selectedMemberId)}
-                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
                         >
-                          <RotateCcw className="w-3 h-3 text-slate-500" />
+                          {isSaving ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+                          ) : (
+                            <RotateCcw className="w-3 h-3 text-slate-500" />
+                          )}
                           <span>Reabrir</span>
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleCompleteMemberPortion(selectedMemberId)}
-                        className="w-full py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Check className="w-4 h-4 stroke-[2.5]" />
-                        <span>
-                          Salvar e Marcar Minha Parte como Concluída (
-                          {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
-                        </span>
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        {activeMemberObservacao.trim() ? (
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={() => handleSaveMemberObservation(selectedMemberId)}
+                            className="px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold border border-slate-300 rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                          >
+                            {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" /> : null}
+                            <span>Salvar Observação</span>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => handleCompleteMemberPortion(selectedMemberId)}
+                          className="flex-1 py-2.5 px-4 bg-[#004691] hover:bg-[#00356e] text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-white" />
+                              <span>Salvando no Supabase...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-4 h-4 stroke-[2.5]" />
+                              <span>
+                                Salvar e Marcar Minha Parte como Concluída (
+                                {selectedMemberObj?.name?.split(' ')[0] || 'Usuário'})
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

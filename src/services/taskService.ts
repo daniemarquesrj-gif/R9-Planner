@@ -362,12 +362,73 @@ export function mapTaskToDbPayload(
     task.recurrenceDays !== undefined ||
     task.userSubmissions !== undefined
   ) {
+    const fields = task.customFields || [];
+    const fieldsById = new Map(fields.map((f) => [f.id, f]));
+
+    // Sanitização explícita de valores: números convertidos estritamente, preservando 0
+    const rawValues = task.customFieldValues || [];
+    const sanitizedValues: CustomFieldValue[] = rawValues.map((v) => {
+      const fieldDef = fieldsById.get(v.fieldId);
+      const isNum = fieldDef?.type === 'number';
+      const rawVal = v.value;
+
+      if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+        if (isNum) {
+          const normalized = typeof rawVal === 'string' ? rawVal.trim().replace(',', '.') : rawVal;
+          const num = Number(normalized);
+          return { fieldId: v.fieldId, value: isNaN(num) ? 0 : num };
+        }
+        return { fieldId: v.fieldId, value: typeof rawVal === 'string' ? rawVal.trim() : rawVal };
+      }
+      return { fieldId: v.fieldId, value: isNum ? 0 : '' };
+    });
+
+    // Sanitização explícita de submissões por usuário
+    const rawSubmissions = task.userSubmissions || {};
+    const sanitizedSubmissions: Record<string, UserTaskSubmission> = {};
+    Object.entries(rawSubmissions).forEach(([userId, sub]) => {
+      const subValues: Record<string, string | number> = {};
+      if (sub.values) {
+        Object.entries(sub.values).forEach(([fId, val]) => {
+          const fieldDef = fieldsById.get(fId);
+          const isNum = fieldDef?.type === 'number';
+
+          if (val !== undefined && val !== null && val !== '') {
+            if (isNum) {
+              const normalized = typeof val === 'string' ? val.trim().replace(',', '.') : val;
+              const num = Number(normalized);
+              subValues[fId] = isNaN(num) ? 0 : num;
+            } else {
+              subValues[fId] = typeof val === 'string' ? val.trim() : val;
+            }
+          } else {
+            subValues[fId] = '';
+          }
+        });
+      }
+
+      const cleanObs =
+        typeof sub.observacao === 'string'
+          ? sub.observacao.trim()
+          : typeof sub.observation === 'string'
+          ? sub.observation.trim()
+          : undefined;
+
+      sanitizedSubmissions[userId] = {
+        ...sub,
+        userId: sub.userId || userId,
+        values: subValues,
+        observacao: cleanObs || undefined,
+        observation: cleanObs || undefined,
+      };
+    });
+
     payload.campos_customizados = {
-      fields: task.customFields || [],
-      values: task.customFieldValues || [],
+      fields,
+      values: sanitizedValues,
       assigneeIds: assignedToIds,
       recurrenceDays: task.recurrenceDays || [],
-      userSubmissions: task.userSubmissions || {},
+      userSubmissions: sanitizedSubmissions,
     };
   }
 
@@ -595,27 +656,38 @@ export const taskService = {
       },
     };
 
-    // Consolidar valores para customFieldValues
+    // Consolidar valores para customFieldValues de forma estrita
     const consolidatedValues: CustomFieldValue[] = [];
     if (task.customFields && task.customFields.length > 0) {
       task.customFields.forEach((f) => {
-        let sum: number | string = 0;
+        let sum = 0;
         const isNum = f.type === 'number';
         let hasAny = false;
 
         Object.values(updatedSubmissions).forEach((s) => {
-          if (s.values && s.values[f.id] !== undefined && s.values[f.id] !== '') {
+          if (
+            s.values &&
+            s.values[f.id] !== undefined &&
+            s.values[f.id] !== null &&
+            s.values[f.id] !== ''
+          ) {
             hasAny = true;
             if (isNum) {
-              sum = Number(sum) + Number(s.values[f.id]);
+              const raw = s.values[f.id];
+              const normalized = typeof raw === 'string' ? raw.trim().replace(',', '.') : raw;
+              const parsed = Number(normalized);
+              sum = sum + (isNaN(parsed) ? 0 : parsed);
             } else {
-              sum = String(s.values[f.id]);
+              sum = (s.values[f.id] as any);
             }
           }
         });
 
         if (hasAny) {
-          consolidatedValues.push({ fieldId: f.id, value: sum });
+          consolidatedValues.push({
+            fieldId: f.id,
+            value: isNum ? Number(sum) : String(sum).trim(),
+          });
         }
       });
     }
@@ -648,16 +720,7 @@ export const taskService = {
     let updateError: any = null;
 
     try {
-      const payload: Record<string, any> = {
-        status: newStatus,
-        campos_customizados: {
-          fields: task.customFields || [],
-          values: updatedTask.customFieldValues || [],
-          assigneeIds: task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []),
-          recurrenceDays: task.recurrenceDays || [],
-          userSubmissions: updatedSubmissions,
-        },
-      };
+      const payload = mapTaskToDbPayload(updatedTask);
 
       const { error } = await supabase
         .from('tarefas')

@@ -8,6 +8,7 @@ import {
   ListPlus,
   HelpCircle,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import { Task, TeamMember, Priority, Recurrence, CustomFormField, TagBucket } from '../types.ts';
 import { BUCKET_OPTIONS } from '../data/mockData.ts';
@@ -15,7 +16,7 @@ import { BUCKET_OPTIONS } from '../data/mockData.ts';
 interface NewTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateTask: (newTask: Omit<Task, 'id' | 'comments'>) => void;
+  onCreateTask: (newTask: Omit<Task, 'id' | 'comments'>) => Promise<any> | void;
   teamMembers: TeamMember[];
   defaultScheduledDate?: string | null;
   buckets?: string[];
@@ -52,6 +53,7 @@ export default function NewTaskModal({
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleAssignee = (memberId: string) => {
     setSelectedAssignees((prev) =>
@@ -123,32 +125,45 @@ export default function NewTaskModal({
     setCustomFields((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setErrorMessage('');
+
     if (!title.trim()) {
       setErrorMessage('O Nome da Ação é obrigatório.');
       return;
     }
 
-    onCreateTask({
-      title: title.trim(),
-      description: description.trim(),
-      priority,
-      recurrence,
-      recurrenceDays: recurrence === 'Personalizado' ? customRecurrenceDays : undefined,
-      bucket,
-      assignedTo: selectedAssignees[0] || null,
-      assignedToIds: selectedAssignees,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      scheduledDate: scheduleType === 'scheduled' && scheduledDate ? scheduledDate : null,
-      status: 'pendente',
-      tags,
-      customFields,
-      customFieldValues: [],
-    });
-
-    onClose();
+    try {
+      setIsSubmitting(true);
+      await onCreateTask({
+        title: title.trim(),
+        description: description.trim(),
+        priority,
+        recurrence,
+        recurrenceDays: recurrence === 'Personalizado' ? customRecurrenceDays : undefined,
+        bucket,
+        assignedTo: selectedAssignees[0] || null,
+        assignedToIds: selectedAssignees,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        scheduledDate: scheduleType === 'scheduled' && scheduledDate ? scheduledDate : null,
+        status: 'pendente',
+        tags,
+        customFields,
+        customFieldValues: [],
+      });
+      onClose();
+    } catch (err: any) {
+      console.error('Erro ao criar ação:', err);
+      setErrorMessage(
+        err?.message ||
+          'Falha ao salvar a nova ação no Supabase. O formulário não foi fechado para evitar perda de dados. Tente novamente.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -655,17 +670,28 @@ export default function NewTaskModal({
           <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-medium text-white bg-institucional hover:opacity-95 rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-xs font-medium text-white bg-institucional hover:opacity-95 rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
-              <Plus className="w-4 h-4" />
-              <span>Criar Ação</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Salvando no Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" />
+                  <span>Criar Ação</span>
+                </>
+              )}
             </button>
           </div>
         </form>

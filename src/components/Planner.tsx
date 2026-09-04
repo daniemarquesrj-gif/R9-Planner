@@ -631,6 +631,13 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     const { updatedTask, nextRecurrentTask, error } =
       await taskService.updateTaskStatus(targetTask, 'concluida', filledValues);
 
+    if (error) {
+      console.error('Erro ao concluir tarefa no Supabase:', error);
+      setToastMessage('Falha ao salvar respostas no Supabase. Tente novamente.');
+      setTimeout(() => setToastMessage(null), 5000);
+      throw error;
+    }
+
     setTasks((prev) => {
       const updatedList = prev.map((t) => (t.id === taskId ? updatedTask : t));
       if (nextRecurrentTask) {
@@ -755,7 +762,17 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
     // Persistir no Supabase
     const { data: savedTask, error } = await taskService.updateTask(updated);
-    if (!error && savedTask) {
+    if (error) {
+      console.error('Erro ao salvar alterações no Supabase:', error);
+      // Reverter estado otimista
+      if (previousTask) {
+        setTasks((prev) => prev.map((t) => (t.id === previousTask.id ? previousTask : t)));
+        setSelectedTask(previousTask);
+      }
+      setToastMessage('Falha ao salvar no Supabase. As alterações não puderam ser gravadas.');
+      setTimeout(() => setToastMessage(null), 5000);
+      throw error;
+    } else if (savedTask) {
       setTasks((prev) => prev.map((t) => (t.id === savedTask.id ? savedTask : t)));
       setSelectedTask(savedTask);
     }
@@ -781,6 +798,13 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     setIsSyncing(true);
     const { data: createdTask, error } = await taskService.createTask(newTaskData);
     setIsSyncing(false);
+
+    if (error || !createdTask) {
+      const errMsg = error?.message || 'Erro ao criar nova ação no Supabase.';
+      setToastMessage(errMsg);
+      setTimeout(() => setToastMessage(null), 5000);
+      throw new Error(errMsg);
+    }
 
     if (createdTask) {
       setTasks((prev) => [createdTask, ...prev]);
