@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Planner from './components/Planner.tsx';
 import Login from './components/Login.jsx';
 import ResetPassword from './components/ResetPassword.tsx';
+import { IdleTimeoutModal } from './components/IdleTimeoutModal.tsx';
+import { useIdleTimeout } from './hooks/useIdleTimeout.ts';
 import { supabase } from './supabase.js';
 
 export default function App() {
@@ -18,10 +20,23 @@ export default function App() {
       path.includes('reset-password') ||
       hash.includes('type=recovery') ||
       search.includes('type=recovery') ||
-      hash.includes('access_token=') && hash.includes('type=recovery') ||
-      search.includes('code=') && search.includes('type=recovery') ||
+      (hash.includes('access_token=') && hash.includes('type=recovery')) ||
+      (search.includes('code=') && search.includes('type=recovery')) ||
       url.includes('recovery')
     );
+  });
+
+  const handleLogout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  }, []);
+
+  // Monitoramento de Inatividade de Sessão (30 minutos timeout, aviso com 2 minutos restantes)
+  const { isPromptOpen, remainingSeconds, stayLoggedIn, logoutNow } = useIdleTimeout({
+    timeoutMs: 30 * 60 * 1000,
+    promptBeforeMs: 2 * 60 * 1000,
+    onIdle: handleLogout,
+    enabled: Boolean(session && !loading && !isResettingPassword),
   });
 
   useEffect(() => {
@@ -59,11 +74,6 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-  };
 
   if (loading) {
     return (
@@ -106,6 +116,16 @@ export default function App() {
     return <Login onLoginSuccess={(user) => setSession({ user })} />;
   }
 
-  return <Planner user={session.user} onLogout={handleLogout} />;
+  return (
+    <>
+      <Planner user={session.user} onLogout={handleLogout} />
+      <IdleTimeoutModal
+        isOpen={isPromptOpen}
+        remainingSeconds={remainingSeconds}
+        onStayLoggedIn={stayLoggedIn}
+        onLogoutNow={logoutNow}
+      />
+    </>
+  );
 }
 

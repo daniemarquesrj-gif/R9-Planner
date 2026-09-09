@@ -225,7 +225,7 @@ export const tagService = {
         return { count: 0, error: bError };
       }
 
-      return { count: bucketCount || 0, error: null };
+      return { count: bucketCount ?? 0, error: null };
     } catch (err) {
       return { count: 0, error: err };
     }
@@ -246,7 +246,7 @@ export const tagService = {
         return { updatedCount: 0, error };
       }
 
-      return { updatedCount: data?.length || 0, error: null };
+      return { updatedCount: data?.length ?? 0, error: null };
     } catch (err) {
       return { updatedCount: 0, error: err };
     }

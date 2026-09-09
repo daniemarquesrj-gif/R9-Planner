@@ -84,19 +84,19 @@ export async function createNextRecurrentTaskSafely(
     // 4. Preparar payload da nova ocorrência limpa
     const recurrentPayload = mapTaskToDbPayload({
       title: normalizedTitle,
-      description: task.description || '',
-      priority: task.priority || 'Alta',
+      description: task.description ?? '',
+      priority: task.priority ?? 'Alta',
       recurrence: task.recurrence,
-      recurrenceDays: task.recurrenceDays || [],
-      bucket: task.bucket || 'Operacional',
-      assignedTo: allAssigneeIds[0] || null,
+      recurrenceDays: task.recurrenceDays ?? [],
+      bucket: task.bucket ?? 'Operacional',
+      assignedTo: allAssigneeIds[0] ?? null,
       assignedToIds: allAssigneeIds,
       startDate: nextDate,
       endDate: nextDate,
       scheduledDate: nextDate,
       status: 'pendente',
-      tags: task.tags || [],
-      customFields: task.customFields || [],
+      tags: task.tags ?? [],
+      customFields: task.customFields ?? [],
       customFieldValues: [], // Resetar valores preenchidos para a nova ocorrência
       userSubmissions: {}, // Iniciar submissões limpas para os responsáveis
       comments: [], // Iniciar sem comentários históricos
@@ -323,8 +323,15 @@ export function mapTaskToDbPayload(
 ): Record<string, any> {
   const payload: Record<string, any> = {};
 
-  if (task.title !== undefined) payload.titulo = task.title;
-  if (task.description !== undefined) payload.descricao = task.description;
+  if (task.title !== undefined) {
+    payload.titulo = typeof task.title === 'string' ? task.title.trim() : task.title;
+  }
+  if (task.description !== undefined) {
+    payload.descricao =
+      typeof task.description === 'string'
+        ? task.description.trim()
+        : (task.description ?? '');
+  }
   if (task.priority !== undefined) payload.prioridade = task.priority;
   if (task.recurrence !== undefined) payload.recorrencia = task.recurrence;
   if (task.bucket !== undefined) payload.bucket = task.bucket;
@@ -338,7 +345,7 @@ export function mapTaskToDbPayload(
       : [];
 
   if (task.assignedTo !== undefined || task.assignedToIds !== undefined) {
-    const primaryId = assignedToIds[0] || task.assignedTo || null;
+    const primaryId = assignedToIds[0] ?? task.assignedTo ?? null;
     if (primaryId && isValidUUID(primaryId)) {
       payload.responsavel_id = primaryId;
     } else if (primaryId && !primaryId.startsWith('user-')) {
@@ -348,11 +355,15 @@ export function mapTaskToDbPayload(
     }
   }
 
-  if (task.startDate !== undefined) payload.data_inicio = task.startDate || null;
-  if (task.endDate !== undefined) payload.data_fim = task.endDate || null;
-  if (task.scheduledDate !== undefined) payload.data_agendada = task.scheduledDate || null;
+  if (task.startDate !== undefined) payload.data_inicio = task.startDate ?? null;
+  if (task.endDate !== undefined) payload.data_fim = task.endDate ?? null;
+  if (task.scheduledDate !== undefined) payload.data_agendada = task.scheduledDate ?? null;
   if (task.status !== undefined) payload.status = task.status;
-  if (task.tags !== undefined) payload.tags = task.tags;
+  if (task.tags !== undefined) {
+    payload.tags = Array.isArray(task.tags)
+      ? task.tags.map((t) => (typeof t === 'string' ? t.trim() : t)).filter(Boolean)
+      : [];
+  }
 
   // Armazena definições de campos, valores, array de responsáveis, dias de recorrência e submissões individuais no JSONB campos_customizados
   if (
@@ -449,7 +460,7 @@ export function mapTaskToDbPayload(
   }
 
   if ('comments' in task && task.comments !== undefined) {
-    payload.comentarios = task.comments || [];
+    payload.comentarios = task.comments ?? [];
   }
 
   return payload;
@@ -559,7 +570,7 @@ export const taskService = {
     error: any | null;
   }> {
     const updatedValues =
-      filledValues !== undefined ? filledValues : task.customFieldValues || [];
+      filledValues !== undefined ? filledValues : (task.customFieldValues ?? []);
 
     const updatedTask: Task = {
       ...task,
@@ -603,7 +614,7 @@ export const taskService = {
 
       if (newStatus === 'concluida' && hasRecurrence) {
         // Base de cálculo: data_agendada atual (ou data_inicio / hoje)
-        const baseDate = task.scheduledDate || task.startDate || formatISO(new Date());
+        const baseDate = task.scheduledDate ?? task.startDate ?? formatISO(new Date());
         const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
 
         if (nextDate) {
@@ -652,9 +663,9 @@ export const taskService = {
         ? [task.assignedTo]
         : [memberId];
 
-    const existingSub = task.userSubmissions?.[memberId] || {
+    const existingSub = task.userSubmissions?.[memberId] ?? {
       userId: memberId,
-      userName: memberName || 'Usuário',
+      userName: memberName ?? 'Usuário',
       completed: false,
       values: {},
     };
@@ -667,16 +678,16 @@ export const taskService = {
         : existingSub.observation;
 
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
-      ...(task.userSubmissions || {}),
+      ...(task.userSubmissions ?? {}),
       [memberId]: {
         ...existingSub,
         userId: memberId,
-        userName: memberName || existingSub.userName || 'Usuário',
+        userName: memberName ?? existingSub.userName ?? 'Usuário',
         completed,
         completedAt: completed
-          ? existingSub.completedAt || new Date().toISOString()
+          ? (existingSub.completedAt ?? new Date().toISOString())
           : undefined,
-        values: values !== undefined ? values : existingSub.values || {},
+        values: values !== undefined ? values : (existingSub.values ?? {}),
         observacao: finalObservacao,
         observation: finalObservacao,
       },
@@ -775,7 +786,7 @@ export const taskService = {
         task.recurrence.trim() !== '';
 
       if (allCompleted && hasRecurrence) {
-        const baseDate = task.scheduledDate || task.startDate || formatISO(new Date());
+        const baseDate = task.scheduledDate ?? task.startDate ?? formatISO(new Date());
         const nextDate = getNextRecurrenceDate(baseDate, task.recurrence, task.recurrenceDays);
 
         if (nextDate) {

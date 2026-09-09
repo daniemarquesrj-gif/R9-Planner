@@ -89,7 +89,7 @@ export default function TaskCard({
 
   // Contagem de campos customizados obrigatórios preenchidos
   const requiredFieldsCount =
-    task.customFields?.filter((f) => f.required).length || 0;
+    task.customFields?.filter((f) => f.required).length ?? 0;
   const filledFieldsCount =
     task.customFieldValues?.filter((v) => {
       const fieldDef = task.customFields?.find((f) => f.id === v.fieldId);
@@ -99,7 +99,7 @@ export default function TaskCard({
         v.value !== null &&
         v.value !== undefined
       );
-    }).length || 0;
+    }).length ?? 0;
 
   const hasRequiredFields = requiredFieldsCount > 0;
   const isFormComplete =

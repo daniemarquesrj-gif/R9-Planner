@@ -154,11 +154,11 @@ export default function TagManagementView({
     const map: Record<string, number> = {};
     tasks.forEach((t) => {
       if (t.bucket) {
-        map[t.bucket] = (map[t.bucket] || 0) + 1;
+        map[t.bucket] = (map[t.bucket] ?? 0) + 1;
       }
       if (Array.isArray(t.tags)) {
         t.tags.forEach((tagItem) => {
-          map[tagItem] = (map[tagItem] || 0) + 1;
+          map[tagItem] = (map[tagItem] ?? 0) + 1;
         });
       }
     });
@@ -305,7 +305,7 @@ export default function TagManagementView({
     setIsCheckingUsage(true);
 
     // Contar uso local e remoto
-    const localUsage = tagUsageMap[tag.nome] || 0;
+    const localUsage = tagUsageMap[tag.nome] ?? 0;
     try {
       const { count } = await tagService.countTasksWithTag(tag.nome);
       setAssociatedTaskCount(Math.max(localUsage, count));
@@ -587,7 +587,7 @@ export default function TagManagementView({
                     Tags em Uso
                   </span>
                   <span className="text-lg font-bold text-emerald-600">
-                    {tags.filter((t) => (tagUsageMap[t.nome] || 0) > 0).length}
+                    {tags.filter((t) => (tagUsageMap[t.nome] ?? 0) > 0).length}
                   </span>
                 </div>
               </div>
@@ -676,7 +676,7 @@ export default function TagManagementView({
                 ) : (
                   filteredTags.map((tag) => {
                     const isEditing = editingTagId === tag.id;
-                    const usageCount = tagUsageMap[tag.nome] || 0;
+                    const usageCount = tagUsageMap[tag.nome] ?? 0;
 
                     if (isEditing) {
                       return (

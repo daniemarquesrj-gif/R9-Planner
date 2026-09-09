@@ -491,15 +491,15 @@ export default function TaskDetailModal({
     setCompletionError(null);
     setSuccessFeedback(null);
 
-    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name ?? 'Usuário';
     const sub = getMemberSubmission(memberId);
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
-      ...(task.userSubmissions || {}),
+      ...(task.userSubmissions ?? {}),
       [memberId]: {
         ...sub,
         userId: memberId,
         userName: memberName,
-        values: memberId === selectedMemberId ? { ...activeMemberFormValues } : sub.values || {},
+        values: memberId === selectedMemberId ? { ...activeMemberFormValues } : (sub.values ?? {}),
         observacao: activeMemberObservacao.trim() || undefined,
         observation: activeMemberObservacao.trim() || undefined,
       },
@@ -579,14 +579,14 @@ export default function TaskDetailModal({
     setSuccessFeedback(null);
 
     const sub = getMemberSubmission(memberId);
-    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
+    const memberName = assignedMemberList.find((m) => m.id === memberId)?.name ?? 'Usuário';
     const newCompleted = !sub.completed;
 
     // Se o membro selecionado está sendo editado no momento, herda os valores atuais do formulário
     const valuesToUse =
       memberId === selectedMemberId
         ? { ...activeMemberFormValues }
-        : sub.values || {};
+        : (sub.values ?? {});
 
     const observacaoToUse =
       memberId === selectedMemberId
@@ -594,7 +594,7 @@ export default function TaskDetailModal({
         : (sub.observacao !== undefined ? sub.observacao : sub.observation);
 
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
-      ...(task.userSubmissions || {}),
+      ...(task.userSubmissions ?? {}),
       [memberId]: {
         ...sub,
         userId: memberId,
@@ -730,7 +730,7 @@ export default function TaskDetailModal({
 
     onUpdateTask({
       ...task,
-      comments: [...(task.comments || []), newComment],
+      comments: [...(task.comments ?? []), newComment],
     });
     setNewCommentText('');
   };
@@ -762,7 +762,7 @@ export default function TaskDetailModal({
     };
     onUpdateTask({
       ...task,
-      customFields: [...(task.customFields || []), newField],
+      customFields: [...(task.customFields ?? []), newField],
     });
     setFieldLabel('');
     setIsAddingField(false);
@@ -2060,7 +2060,7 @@ export default function TaskDetailModal({
                 <div className="flex items-center gap-2 mb-4">
                   <MessageSquare className="w-4 h-4 text-blue-600" />
                   <h3 className="text-sm font-semibold text-gray-900">
-                    Histórico e Chat da Equipe ({task.comments?.length || 0})
+                    Histórico e Chat da Equipe ({task.comments?.length ?? 0})
                   </h3>
                 </div>
 

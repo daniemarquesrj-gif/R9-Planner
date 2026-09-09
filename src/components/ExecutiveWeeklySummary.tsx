@@ -234,16 +234,16 @@ export default function ExecutiveWeeklySummary({
     groupsMap.forEach((instances, key) => {
       // Ordenar instâncias por data agendada cronologicamente
       instances.sort((a, b) => {
-        const dateA = a.scheduledDate || a.startDate || '';
-        const dateB = b.scheduledDate || b.startDate || '';
+        const dateA = a.scheduledDate ?? a.startDate ?? '';
+        const dateB = b.scheduledDate ?? b.startDate ?? '';
         return dateA.localeCompare(dateB);
       });
 
       const firstInstance = instances[0];
-      const title = firstInstance.title || 'Sem Título';
-      const description = instances.find((t) => t.description)?.description || '';
-      const bucket = instances.find((t) => t.bucket)?.bucket || 'Geral';
-      const recurrence = instances.find((t) => t.recurrence && t.recurrence !== 'Nenhuma')?.recurrence || firstInstance.recurrence;
+      const title = firstInstance.title ?? 'Sem Título';
+      const description = instances.find((t) => t.description)?.description ?? '';
+      const bucket = instances.find((t) => t.bucket)?.bucket ?? 'Geral';
+      const recurrence = instances.find((t) => t.recurrence && t.recurrence !== 'Nenhuma')?.recurrence ?? firstInstance.recurrence;
 
       // Determinar prioridade mais alta entre as instâncias
       let priority: Priority = 'Baixa';
