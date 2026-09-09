@@ -123,26 +123,13 @@ export default function TaskDetailModal({
     if (currentUser?.id && assigneeIds.includes(currentUser.id)) {
       return currentUser.id;
     }
-    return assignedMemberList[0]?.id || currentUser?.id || 'default-user';
+    return assignedMemberList[0]?.id ?? currentUser?.id ?? 'default-user';
   });
 
-  // Obter submissão de um membro com fallback
+  // Obter submissão de um membro
   const getMemberSubmission = (memberId: string): UserTaskSubmission => {
     if (task.userSubmissions && task.userSubmissions[memberId]) {
       return task.userSubmissions[memberId];
-    }
-    // Fallback legado se houver apenas 1 responsável e customFieldValues existir
-    if (assigneeIds.length <= 1 && task.customFieldValues && task.customFieldValues.length > 0) {
-      const legacyVals: Record<string, string | number> = {};
-      task.customFieldValues.forEach((v) => {
-        legacyVals[v.fieldId] = v.value;
-      });
-      return {
-        userId: memberId,
-        userName: assignedMemberList.find((m) => m.id === memberId)?.name,
-        completed: task.status === 'concluida',
-        values: legacyVals,
-      };
     }
     return {
       userId: memberId,
@@ -152,43 +139,39 @@ export default function TaskDetailModal({
     };
   };
 
-  // Valores ativos do formulário para o usuário selecionado
-  const [activeMemberFormValues, setActiveMemberFormValues] = useState<
-    Record<string, string | number>
-  >(() => {
-    const sub = getMemberSubmission(selectedMemberId);
+  // Constrói estado inicial limpo para o membro: NUNCA herda valores fantasmas (como 5322) nem totais acumulados
+  const buildInitialValuesForMember = (memberId: string): Record<string, string | number> => {
+    const sub = getMemberSubmission(memberId);
     const initial: Record<string, string | number> = {};
     task.customFields?.forEach((f) => {
-      // 1. Prioriza o valor submetido pelo membro selecionado
-      if (sub.values && sub.values[f.id] !== undefined && sub.values[f.id] !== null) {
+      // Prioriza EXCLUSIVAMENTE o valor salvo por este membro específico
+      if (
+        sub.values &&
+        sub.values[f.id] !== undefined &&
+        sub.values[f.id] !== null &&
+        sub.values[f.id] !== ''
+      ) {
         initial[f.id] =
           f.type === 'number'
-            ? sub.values[f.id] === ''
-              ? ''
-              : Number(sub.values[f.id])
+            ? Number(sub.values[f.id])
             : sub.values[f.id];
       } else {
-        // 2. Fallback para valor global da tarefa (se existir)
-        const globalVal = task.customFieldValues?.find((v) => v.fieldId === f.id);
-        if (globalVal !== undefined && globalVal.value !== null && globalVal.value !== undefined) {
-          initial[f.id] =
-            f.type === 'number'
-              ? globalVal.value === ''
-                ? ''
-                : Number(globalVal.value)
-              : globalVal.value;
-        } else {
-          initial[f.id] = '';
-        }
+        // Inicialização limpa: estritamente '' (vazio), sem herdar valores fantasmas
+        initial[f.id] = '';
       }
     });
     return initial;
-  });
+  };
+
+  // Valores ativos do formulário para o usuário selecionado
+  const [activeMemberFormValues, setActiveMemberFormValues] = useState<
+    Record<string, string | number>
+  >(() => buildInitialValuesForMember(selectedMemberId));
 
   // Observação livre e opcional da parte do usuário selecionado
   const [activeMemberObservacao, setActiveMemberObservacao] = useState<string>(() => {
     const sub = getMemberSubmission(selectedMemberId);
-    return sub.observacao !== undefined ? sub.observacao : sub.observation || '';
+    return sub.observacao !== undefined ? sub.observacao : (sub.observation ?? '');
   });
 
   // Mensagens de validação e feedback
@@ -197,39 +180,45 @@ export default function TaskDetailModal({
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Sincronizar os valores dos campos e observação sempre que o membro selecionado ou a submissão dele mudar
-  const currentMemberSubString = JSON.stringify(task.userSubmissions?.[selectedMemberId] || null);
+  const currentMemberSubString = JSON.stringify(task.userSubmissions?.[selectedMemberId] ?? null);
+
+  // Resetar membro ativo quando a tarefa ou modal mudar
+  useEffect(() => {
+    if (isOpen && task) {
+      const defaultId =
+        currentUser?.id && assigneeIds.includes(currentUser.id)
+          ? currentUser.id
+          : (assignedMemberList[0]?.id ?? currentUser?.id ?? 'default-user');
+      setSelectedMemberId(defaultId);
+    }
+  }, [isOpen, task.id]);
 
   useEffect(() => {
-    const sub = getMemberSubmission(selectedMemberId);
-    const initial: Record<string, string | number> = {};
-    task.customFields?.forEach((f) => {
-      if (sub.values && sub.values[f.id] !== undefined && sub.values[f.id] !== null) {
-        initial[f.id] =
-          f.type === 'number'
-            ? sub.values[f.id] === ''
-              ? ''
-              : Number(sub.values[f.id])
-            : sub.values[f.id];
-      } else {
-        const globalVal = task.customFieldValues?.find((v) => v.fieldId === f.id);
-        if (globalVal !== undefined && globalVal.value !== null && globalVal.value !== undefined) {
-          initial[f.id] =
-            f.type === 'number'
-              ? globalVal.value === ''
-                ? ''
-                : Number(globalVal.value)
-              : globalVal.value;
-        } else {
-          initial[f.id] = '';
-        }
-      }
-    });
+    const initial = buildInitialValuesForMember(selectedMemberId);
     setActiveMemberFormValues(initial);
+    const sub = getMemberSubmission(selectedMemberId);
     setActiveMemberObservacao(
-      sub.observacao !== undefined ? sub.observacao : sub.observation || ''
+      sub.observacao !== undefined ? sub.observacao : (sub.observation ?? '')
     );
     setCompletionError(null);
-  }, [selectedMemberId, task.id, currentMemberSubString]);
+  }, [selectedMemberId, task.id, currentMemberSubString, isOpen]);
+
+  // Função para limpar/resetar o formulário do membro atual
+  const handleResetMemberForm = () => {
+    const initial: Record<string, string | number> = {};
+    task.customFields?.forEach((f) => {
+      initial[f.id] = '';
+    });
+    setActiveMemberFormValues(initial);
+    setActiveMemberObservacao('');
+    setCompletionError(null);
+    setSuccessFeedback('Formulário limpo com sucesso.');
+    console.log('[FORM AUDIT - RESET MEMBER FORM]', {
+      taskId: task.id,
+      memberId: selectedMemberId,
+      timestamp: new Date().toISOString(),
+    });
+  };
 
   // Contagem de progresso de membros
   const effectiveAssigneeIds = useMemo(() => {
@@ -257,9 +246,10 @@ export default function TaskDetailModal({
       } else {
         const normalized = trimmed.replace(',', '.');
         const num = Number(normalized);
+        // Garante que o número 0 ou positivo seja estritamente preservado e nunca decrementado indevidamente
         setActiveMemberFormValues((prev) => ({
           ...prev,
-          [fieldId]: isNaN(num) ? normalized : num,
+          [fieldId]: !isNaN(num) ? num : normalized,
         }));
       }
     } else {
@@ -289,7 +279,7 @@ export default function TaskDetailModal({
             const raw = s.values[f.id];
             const normalized = typeof raw === 'string' ? raw.trim().replace(',', '.') : raw;
             const parsed = Number(normalized);
-            sum = sum + (isNaN(parsed) ? 0 : parsed);
+            sum = sum + (!isNaN(parsed) ? parsed : 0);
           } else {
             sum = (s.values[f.id] as any);
           }
@@ -345,13 +335,24 @@ export default function TaskDetailModal({
 
     const consolidated = calculateConsolidatedValues(updatedSubmissions);
 
+    const updatedTask: Task = {
+      ...task,
+      userSubmissions: updatedSubmissions,
+      customFieldValues: consolidated,
+    };
+
+    console.log('[SUPABASE AUDIT - SAVE MEMBER RESPONSES]', {
+      taskId: task.id,
+      memberId,
+      memberName,
+      sanitizedValues,
+      consolidatedCustomFields: consolidated,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       setIsSaving(true);
-      await onUpdateTask({
-        ...task,
-        userSubmissions: updatedSubmissions,
-        customFieldValues: consolidated.length > 0 ? consolidated : task.customFieldValues,
-      });
+      await onUpdateTask(updatedTask);
       setSuccessFeedback(`Respostas de ${memberName} salvas com sucesso no Supabase.`);
     } catch (err: any) {
       console.error('Erro ao salvar respostas no Supabase:', err);
@@ -447,9 +448,18 @@ export default function TaskDetailModal({
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
-      customFieldValues:
-        consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
+      customFieldValues: consolidatedValues,
     };
+
+    console.log('[SUPABASE AUDIT - COMPLETE MEMBER PORTION]', {
+      taskId: task.id,
+      memberId,
+      memberName,
+      newStatus,
+      sanitizedValues,
+      consolidatedValues,
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       setIsSaving(true);
@@ -614,15 +624,26 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
+    const updatedTask: Task = {
+      ...task,
+      status: newStatus,
+      userSubmissions: updatedSubmissions,
+      customFieldValues: consolidatedValues,
+    };
+
+    console.log('[SUPABASE AUDIT - ADMIN TOGGLE MEMBER]', {
+      taskId: task.id,
+      memberId,
+      memberName,
+      newCompleted,
+      newStatus,
+      consolidatedValues,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       setIsSaving(true);
-      await onUpdateTask({
-        ...task,
-        status: newStatus,
-        userSubmissions: updatedSubmissions,
-        customFieldValues:
-          consolidatedValues.length > 0 ? consolidatedValues : task.customFieldValues,
-      });
+      await onUpdateTask(updatedTask);
 
       if (newCompleted) {
         if (willAllBeCompleted) {
@@ -1015,6 +1036,18 @@ export default function TaskDetailModal({
                         Métricas & Campos Obrigatórios para Conclusão
                       </h3>
                     </div>
+                    {!isCurrentSelectedCompleted && (
+                      <button
+                        type="button"
+                        onClick={handleResetMemberForm}
+                        disabled={isSaving}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline cursor-pointer disabled:opacity-50"
+                        title="Limpar todos os campos digitados para começar do zero"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Limpar formulário</span>
+                      </button>
+                    )}
                   </div>
 
                   <p className="text-[11px] text-gray-600 leading-relaxed">
@@ -1057,10 +1090,12 @@ export default function TaskDetailModal({
                           </label>
                           <input
                             type={field.type === 'number' ? 'number' : 'text'}
+                            min={field.type === 'number' ? 0 : undefined}
+                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
                             required={field.required}
                             disabled={isCurrentSelectedCompleted}
                             placeholder={
-                              field.placeholder ||
+                              field.placeholder ??
                               (field.type === 'number' ? '0' : 'Preencha aqui...')
                             }
                             value={currentVal}

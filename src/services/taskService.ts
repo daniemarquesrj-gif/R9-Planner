@@ -362,11 +362,11 @@ export function mapTaskToDbPayload(
     task.recurrenceDays !== undefined ||
     task.userSubmissions !== undefined
   ) {
-    const fields = task.customFields || [];
+    const fields = task.customFields ?? [];
     const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
-    // Sanitização explícita de valores: números convertidos estritamente, preservando 0
-    const rawValues = task.customFieldValues || [];
+    // Sanitização explícita de valores: números convertidos estritamente, preservando 0 como valor válido
+    const rawValues = task.customFieldValues ?? [];
     const sanitizedValues: CustomFieldValue[] = rawValues.map((v) => {
       const fieldDef = fieldsById.get(v.fieldId);
       const isNum = fieldDef?.type === 'number';
@@ -376,15 +376,15 @@ export function mapTaskToDbPayload(
         if (isNum) {
           const normalized = typeof rawVal === 'string' ? rawVal.trim().replace(',', '.') : rawVal;
           const num = Number(normalized);
-          return { fieldId: v.fieldId, value: isNaN(num) ? 0 : num };
+          return { fieldId: v.fieldId, value: !isNaN(num) ? num : 0 };
         }
         return { fieldId: v.fieldId, value: typeof rawVal === 'string' ? rawVal.trim() : rawVal };
       }
-      return { fieldId: v.fieldId, value: isNum ? 0 : '' };
+      return { fieldId: v.fieldId, value: '' };
     });
 
     // Sanitização explícita de submissões por usuário
-    const rawSubmissions = task.userSubmissions || {};
+    const rawSubmissions = task.userSubmissions ?? {};
     const sanitizedSubmissions: Record<string, UserTaskSubmission> = {};
     Object.entries(rawSubmissions).forEach(([userId, sub]) => {
       const subValues: Record<string, string | number> = {};
@@ -397,7 +397,7 @@ export function mapTaskToDbPayload(
             if (isNum) {
               const normalized = typeof val === 'string' ? val.trim().replace(',', '.') : val;
               const num = Number(normalized);
-              subValues[fId] = isNaN(num) ? 0 : num;
+              subValues[fId] = !isNaN(num) ? num : 0;
             } else {
               subValues[fId] = typeof val === 'string' ? val.trim() : val;
             }
@@ -416,10 +416,10 @@ export function mapTaskToDbPayload(
 
       sanitizedSubmissions[userId] = {
         ...sub,
-        userId: sub.userId || userId,
+        userId: sub.userId ?? userId,
         values: subValues,
-        observacao: cleanObs || undefined,
-        observation: cleanObs || undefined,
+        observacao: cleanObs ?? undefined,
+        observation: cleanObs ?? undefined,
       };
     });
 
@@ -427,9 +427,25 @@ export function mapTaskToDbPayload(
       fields,
       values: sanitizedValues,
       assigneeIds: assignedToIds,
-      recurrenceDays: task.recurrenceDays || [],
+      recurrenceDays: task.recurrenceDays ?? [],
       userSubmissions: sanitizedSubmissions,
     };
+
+    // Rastreabilidade e Log (Check-up de Payload antes do Supabase)
+    console.log('[SUPABASE PAYLOAD AUDIT - CHECK-UP]', {
+      taskId: (task as any).id ?? 'NOVO_REGISTRO',
+      taskTitle: task.title,
+      timestamp: new Date().toISOString(),
+      rawInput: {
+        customFieldValues: task.customFieldValues,
+        userSubmissions: task.userSubmissions,
+      },
+      sanitizedPayload: {
+        values: sanitizedValues,
+        userSubmissions: sanitizedSubmissions,
+      },
+      camposCustomizados: payload.campos_customizados,
+    });
   }
 
   if ('comments' in task && task.comments !== undefined) {
@@ -474,12 +490,20 @@ export const taskService = {
     try {
       const payload = mapTaskToDbPayload(newTaskData);
 
+      console.log('[SUPABASE AUDIT - INSERT TAREFA]', {
+        operation: 'tarefas.insert',
+        title: newTaskData.title,
+        payload,
+        timestamp: new Date().toISOString(),
+      });
+
       const { data, error } = await supabase
         .from('tarefas')
         .insert([payload])
         .select();
 
       if (error) {
+        console.error('[SUPABASE AUDIT - INSERT ERROR]', error);
         return { data: null, error };
       }
 
@@ -491,6 +515,7 @@ export const taskService = {
 
       return { data: null, error: null };
     } catch (err) {
+      console.error('[SUPABASE AUDIT - INSERT EXCEPTION]', err);
       return { data: null, error: err };
     }
   },
@@ -546,17 +571,17 @@ export const taskService = {
     let updateError: any = null;
 
     try {
-      // 1. Atualizar registro atual no Supabase para o novo status
-      const payload: Record<string, any> = {
-        status: newStatus,
-        campos_customizados: {
-          fields: task.customFields || [],
-          values: updatedValues,
-          assigneeIds: task.assignedToIds || (task.assignedTo ? [task.assignedTo] : []),
-          recurrenceDays: task.recurrenceDays || [],
-          userSubmissions: task.userSubmissions || {},
-        },
-      };
+      // 1. Atualizar registro atual no Supabase para o novo status usando mapTaskToDbPayload para sanitização rigorosa
+      const payload = mapTaskToDbPayload(updatedTask);
+
+      console.log('[SUPABASE AUDIT - UPDATE TASK STATUS]', {
+        operation: 'tarefas.updateStatus',
+        taskId: task.id,
+        newStatus,
+        filledValues,
+        payload,
+        timestamp: new Date().toISOString(),
+      });
 
       const { error } = await supabase
         .from('tarefas')
@@ -564,6 +589,7 @@ export const taskService = {
         .eq('id', task.id);
 
       if (error) {
+        console.error('[SUPABASE AUDIT - UPDATE STATUS ERROR]', error);
         updateError = error;
       } else {
         broadcastTaskMutation('updated', updatedTask);
@@ -710,10 +736,7 @@ export const taskService = {
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
-      customFieldValues:
-        consolidatedValues.length > 0
-          ? consolidatedValues
-          : task.customFieldValues,
+      customFieldValues: consolidatedValues,
     };
 
     let nextRecurrentTask: Task | null = null;
@@ -722,12 +745,24 @@ export const taskService = {
     try {
       const payload = mapTaskToDbPayload(updatedTask);
 
+      console.log('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION]', {
+        operation: 'tarefas.updateAssigneeCompletion',
+        taskId: task.id,
+        memberId,
+        completed,
+        inputValues: values,
+        consolidatedValues,
+        payload,
+        timestamp: new Date().toISOString(),
+      });
+
       const { error } = await supabase
         .from('tarefas')
         .update(payload)
         .eq('id', task.id);
 
       if (error) {
+        console.error('[SUPABASE AUDIT - UPDATE ASSIGNEE COMPLETION ERROR]', error);
         updateError = error;
       } else {
         broadcastTaskMutation('updated', updatedTask);
@@ -787,18 +822,27 @@ export const taskService = {
     try {
       const payload = mapTaskToDbPayload(task);
 
+      console.log('[SUPABASE AUDIT - UPDATE TASK]', {
+        operation: 'tarefas.update',
+        taskId: task.id,
+        payload,
+        timestamp: new Date().toISOString(),
+      });
+
       const { error } = await supabase
         .from('tarefas')
         .update(payload)
         .eq('id', task.id);
 
       if (error) {
+        console.error('[SUPABASE AUDIT - UPDATE TASK ERROR]', error);
         return { data: task, error };
       }
 
       broadcastTaskMutation('updated', task);
       return { data: task, error: null };
     } catch (err) {
+      console.error('[SUPABASE AUDIT - UPDATE TASK EXCEPTION]', err);
       return { data: task, error: err };
     }
   },

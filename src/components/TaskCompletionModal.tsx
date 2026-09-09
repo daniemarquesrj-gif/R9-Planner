@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, Lock, FileText, Check, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { AlertCircle, CheckCircle2, RotateCcw, Check, Loader2 } from 'lucide-react';
 import { Task, CustomFieldValue } from '../types.ts';
 
 interface TaskCompletionModalProps {
@@ -17,27 +17,39 @@ export default function TaskCompletionModal({
 }: TaskCompletionModalProps) {
   if (!isOpen || !task) return null;
 
-  // Inicializar estado dos valores customizados com os valores prévios ou vazios
+  // Inicialização limpa: campos inicializados como '' (vazio), sem herdar valores fantasmas (como 5322) nem cache
   const [formValues, setFormValues] = useState<Record<string, string | number>>(() => {
     const initial: Record<string, string | number> = {};
     task.customFields?.forEach((field) => {
-      const existing = task.customFieldValues?.find((v) => v.fieldId === field.id);
-      if (existing !== undefined && existing.value !== null && existing.value !== undefined) {
-        initial[field.id] =
-          field.type === 'number'
-            ? existing.value === ''
-              ? ''
-              : Number(existing.value)
-            : String(existing.value);
-      } else {
-        initial[field.id] = '';
-      }
+      initial[field.id] = '';
     });
     return initial;
   });
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Garantir limpeza total de estado ao abrir novo modal ou alterar a tarefa
+  useEffect(() => {
+    if (isOpen && task) {
+      const initial: Record<string, string | number> = {};
+      task.customFields?.forEach((field) => {
+        initial[field.id] = '';
+      });
+      setFormValues(initial);
+      setValidationError(null);
+    }
+  }, [isOpen, task.id]);
+
+  // Função para limpar/resetar o formulário manualmente
+  const handleResetForm = () => {
+    const initial: Record<string, string | number> = {};
+    task.customFields?.forEach((field) => {
+      initial[field.id] = '';
+    });
+    setFormValues(initial);
+    setValidationError(null);
+  };
 
   const handleInputChange = (fieldId: string, value: string, type: 'text' | 'number') => {
     setValidationError(null);
@@ -48,9 +60,10 @@ export default function TaskCompletionModal({
       } else {
         const normalized = trimmed.replace(',', '.');
         const num = Number(normalized);
+        // Garante que o número 0 ou positivo seja estritamente preservado e nunca decrementado indevidamente
         setFormValues((prev) => ({
           ...prev,
-          [fieldId]: isNaN(num) ? normalized : num,
+          [fieldId]: !isNaN(num) ? num : normalized,
         }));
       }
     } else {
@@ -71,7 +84,7 @@ export default function TaskCompletionModal({
       const rawVal = formValues[field.id];
       const isNum = field.type === 'number';
 
-      // Validação estrita: 0 (zero) é um valor válido! Apenas vazios, null e undefined contam como não preenchido
+      // Validação estrita: 0 (zero) é um valor válido! Apenas vazios '', null e undefined contam como não preenchido
       const isFilled = rawVal !== undefined && rawVal !== null && rawVal !== '';
 
       if (field.required && !isFilled) {
@@ -87,7 +100,7 @@ export default function TaskCompletionModal({
           } else {
             filledValues.push({
               fieldId: field.id,
-              value: num, // Garantir explicitamente número, inclusive 0
+              value: num, // Preserva explicitamente o número, inclusive 0
             });
           }
         } else {
@@ -105,6 +118,15 @@ export default function TaskCompletionModal({
       );
       return;
     }
+
+    // Auditoria e log de rastreabilidade de payload antes do envio
+    console.log('[SUPABASE AUDIT - TASK COMPLETION MODAL PAYLOAD]', {
+      taskId: task.id,
+      taskTitle: task.title,
+      capturedValues: formValues, // inclui o 0 explicitamente
+      sanitizedFilledValues: filledValues,
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       setIsSubmitting(true);
@@ -166,6 +188,20 @@ export default function TaskCompletionModal({
           )}
 
           <div className="space-y-3.5 pt-1">
+            <div className="flex items-center justify-between pb-1">
+              <span className="text-[11px] font-medium text-gray-500">Campos obrigatórios</span>
+              <button
+                type="button"
+                onClick={handleResetForm}
+                disabled={isSubmitting}
+                className="text-[11px] text-gray-500 hover:text-gray-800 flex items-center gap-1 hover:underline cursor-pointer disabled:opacity-50"
+                title="Limpar todos os campos digitados"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Limpar campos</span>
+              </button>
+            </div>
+
             {task.customFields && task.customFields.length > 0 ? (
               task.customFields.map((field) => {
                 const currentValue = formValues[field.id] !== undefined ? formValues[field.id] : '';
@@ -177,9 +213,11 @@ export default function TaskCompletionModal({
                     </label>
                     <input
                       type={field.type === 'number' ? 'number' : 'text'}
+                      min={field.type === 'number' ? 0 : undefined}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       required={field.required}
                       placeholder={
-                        field.placeholder ||
+                        field.placeholder ??
                         (field.type === 'number' ? '0' : 'Digite a resposta...')
                       }
                       value={currentValue}
@@ -199,32 +237,42 @@ export default function TaskCompletionModal({
           </div>
 
           {/* Botões de Ação */}
-          <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
+          <div className="pt-3 border-t border-gray-200 flex items-center justify-between gap-2">
             <button
               type="button"
               disabled={isSubmitting}
-              onClick={onClose}
-              className="px-3.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+              onClick={handleResetForm}
+              className="text-xs text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
             >
-              Cancelar
+              Resetar valores
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Salvando no Supabase...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Salvar e Concluir</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={onClose}
+                className="px-3.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-4 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Salvando no Supabase...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Salvar e Concluir</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
