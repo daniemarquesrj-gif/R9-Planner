@@ -11,7 +11,6 @@ import {
   Inbox,
   TrendingUp,
   RefreshCw,
-  Database,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole, CustomFieldValue, TagBucket } from '../types.ts';
 import {
@@ -23,7 +22,7 @@ import {
   getNextRecurrenceDate,
 } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
-import { taskService, mapDbRowToTask } from '../services/taskService.ts';
+import { taskService, mapDbRowToTask, getTaskSyncChannel } from '../services/taskService.ts';
 import { userService, UserProfile } from '../services/userService.ts';
 import { tagService } from '../services/tagService.ts';
 import { supabase } from '../supabase.js';
@@ -36,7 +35,6 @@ import LeftSidebar, { SidebarTab, NavFilter } from './LeftSidebar.tsx';
 import TeamManagementView from './TeamManagementView.tsx';
 import ExecutiveWeeklySummary from './ExecutiveWeeklySummary.tsx';
 import TagManagementView from './TagManagementView.tsx';
-import { Users, Tag } from 'lucide-react';
 
 interface PlannerProps {
   user?: {
@@ -304,40 +302,40 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       .subscribe();
 
     // 2. Canal Broadcast em tempo real para sincronização instantânea entre abas e usuários
-    const broadcastChannel = supabase
-      .channel('tarefas-planner-sync-hub', {
-        config: { broadcast: { ack: false, self: false } },
-      })
-      .on('broadcast', { event: 'task_mutation' }, (eventPayload) => {
-        const payload = eventPayload.payload;
-        if (!payload) return;
+    const syncChannel = getTaskSyncChannel();
+    const handleBroadcastEvent = (eventPayload: any) => {
+      const payload = eventPayload?.payload;
+      if (!payload) return;
 
-        if (payload.action === 'deleted' && payload.taskId) {
-          setTasks((prev) => prev.filter((t) => t.id !== payload.taskId));
-          setSelectedTask((curr) => (curr?.id === payload.taskId ? null : curr));
-        } else if (payload.task) {
-          const incomingTask = payload.task as Task;
-          setTasks((prev) => {
-            const exists = prev.some((t) => t.id === incomingTask.id);
-            if (exists) {
-              return prev.map((t) => (t.id === incomingTask.id ? incomingTask : t));
-            }
-            return [incomingTask, ...prev];
-          });
-          setSelectedTask((curr) =>
-            curr?.id === incomingTask.id ? incomingTask : curr
-          );
-        } else {
-          // Atualização com recarga em background
-          loadTasksFromSupabase(false);
-        }
-      })
-      .subscribe();
+      if (payload.action === 'deleted' && payload.taskId) {
+        setTasks((prev) => prev.filter((t) => t.id !== payload.taskId));
+        setSelectedTask((curr) => (curr?.id === payload.taskId ? null : curr));
+      } else if (payload.task) {
+        const incomingTask = payload.task as Task;
+        setTasks((prev) => {
+          const exists = prev.some((t) => t.id === incomingTask.id);
+          if (exists) {
+            return prev.map((t) => (t.id === incomingTask.id ? incomingTask : t));
+          }
+          return [incomingTask, ...prev];
+        });
+        setSelectedTask((curr) =>
+          curr?.id === incomingTask.id ? incomingTask : curr
+        );
+      } else {
+        // Atualização com recarga em background
+        loadTasksFromSupabase(false);
+      }
+    };
 
-    // 3. Polling em segundo plano leve a cada 3.5s para garantir consistência total
-    const pollInterval = setInterval(() => {
-      loadTasksFromSupabase(false);
-    }, 3500);
+    syncChannel.on('broadcast', { event: 'task_mutation' }, handleBroadcastEvent);
+
+    // 3. Heartbeat elástico de consistência (a cada 60s) apenas se a aba estiver ativa e visível
+    const heartbeatInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadTasksFromSupabase(false);
+      }
+    }, 60000);
 
     // 4. Atualização imediata ao focar na janela ou voltar para a aba
     const handleFocus = () => {
@@ -354,8 +352,7 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
     return () => {
       supabase.removeChannel(postgresChannel);
-      supabase.removeChannel(broadcastChannel);
-      clearInterval(pollInterval);
+      clearInterval(heartbeatInterval);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };

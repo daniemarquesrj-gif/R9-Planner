@@ -20,12 +20,12 @@ import {
   Users,
   Shield,
   ShieldCheck,
+  Tag,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole, TagBucket } from '../types.ts';
 import { MONTH_NAMES_PT } from '../utils/dateUtils.ts';
 import { isUserAssignedToTask } from '../utils/taskFilterUtils.ts';
 import TaskCard from './TaskCard.tsx';
-import { Tag } from 'lucide-react';
 
 export type SidebarTab = 'planner' | 'unscheduled' | 'summary';
 export type NavFilter = 'all' | 'my_day' | 'my_tasks' | 'urgent' | 'unscheduled';

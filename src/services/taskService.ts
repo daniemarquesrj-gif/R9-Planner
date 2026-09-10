@@ -45,7 +45,8 @@ export async function createNextRecurrentTaskSafely(
     const { data: existingMatches, error: queryError } = await supabase
       .from('tarefas')
       .select('id, titulo, data_agendada, data_inicio, status')
-      .ilike('titulo', normalizedTitle);
+      .ilike('titulo', normalizedTitle)
+      .or(`data_agendada.eq.${nextDate},data_inicio.eq.${nextDate}`);
 
     if (queryError) {
       console.warn(
@@ -475,7 +476,8 @@ export const taskService = {
       const { data, error } = await supabase
         .from('tarefas')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(1000);
 
       if (error) {
         return { data: [], error };
