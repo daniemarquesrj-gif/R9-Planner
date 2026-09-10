@@ -1,9 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import Planner from './components/Planner.tsx';
 import Login from './components/Login.jsx';
 import ResetPassword from './components/ResetPassword.tsx';
-import { IdleTimeoutModal } from './components/IdleTimeoutModal.tsx';
-import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout.ts';
 import { AppUpdateBanner } from './components/AppUpdateBanner.tsx';
 import { useAppVersionCheck } from './hooks/useAppVersionCheck.ts';
 import { supabase } from './supabase.js';
@@ -41,53 +39,15 @@ export default function App() {
     enabled: true,
   });
 
-  // Executa a limpeza obrigatória de estado local, supabase.auth.signOut() e força o redirecionamento
-  const handleLogout = useCallback(async () => {
+  const handleLogout = async () => {
     try {
-      console.log('[LOGOUT] Encerrando sessão do Supabase...');
       await supabase.auth.signOut();
     } catch (err) {
-      console.error('[LOGOUT] Erro ao deslogar do Supabase:', err);
+      console.error('Erro ao deslogar:', err);
     } finally {
-      // 1. Limpeza do estado local do React
       setSession(null);
-
-      // 2. Limpeza de estado local no navegador (sessionStorage e dados de autenticação em localStorage)
-      try {
-        sessionStorage.clear();
-        Object.keys(localStorage).forEach((key) => {
-          if (
-            key.startsWith('sb-') ||
-            key.includes('supabase') ||
-            key.includes('auth') ||
-            key.includes('token')
-          ) {
-            localStorage.removeItem(key);
-          }
-        });
-      } catch (storageErr) {
-        console.error('[LOGOUT] Erro ao limpar storage local:', storageErr);
-      }
-
-      // 3. Forçar o redirecionamento para a tela de login
-      if (typeof window !== 'undefined') {
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        } else {
-          window.location.reload();
-        }
-      }
     }
-  }, []);
-
-  // Monitoramento de Inatividade Global (Tempo limite estipulado: 3 horas)
-  const { isPromptOpen, remainingSeconds, stayLoggedIn, logoutNow, startTime } = useIdleTimeout({
-    startTime: Date.now(),
-    timeoutMs: THREE_HOURS_MS, // 3 horas = 10.800.000 ms
-    promptBeforeMs: 2 * 60 * 1000, // 2 minutos para o alerta visual com contagem
-    onIdle: handleLogout,
-    enabled: Boolean(session && !loading && !isResettingPassword),
-  });
+  };
 
   useEffect(() => {
     // Verificar se há token de recuperação presente na URL/Hash
@@ -198,13 +158,6 @@ export default function App() {
   return (
     <>
       <Planner user={session.user} onLogout={handleLogout} />
-      <IdleTimeoutModal
-        isOpen={isPromptOpen}
-        remainingSeconds={remainingSeconds}
-        startTime={startTime}
-        onStayLoggedIn={stayLoggedIn}
-        onLogoutNow={logoutNow}
-      />
       <AppUpdateBanner
         isUpdateAvailable={isUpdateAvailable}
         isDismissed={isUpdateDismissed}
