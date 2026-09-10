@@ -1,20 +1,22 @@
 import React from 'react';
 import { ShieldAlert, Clock, LogOut, CheckCircle2 } from 'lucide-react';
 
-interface IdleTimeoutModalProps {
+export interface IdleTimeoutModalProps {
   isOpen: boolean;
   remainingSeconds: number;
   onStayLoggedIn: () => void;
   onLogoutNow: () => void;
+  startTime?: number;
 }
 
-export const IdleTimeoutModal: React.FC<IdleTimeoutModalProps> = ({
-  isOpen,
-  remainingSeconds,
-  onStayLoggedIn,
-  onLogoutNow,
-}) => {
-  if (!isOpen) return null;
+export const IdleTimeoutModal: React.FC<IdleTimeoutModalProps> = (props) => {
+  if (!props?.isOpen) return null;
+
+  const remainingSeconds = props?.remainingSeconds ?? 0;
+  const onStayLoggedIn = props?.onStayLoggedIn;
+  const onLogoutNow = props?.onLogoutNow;
+  // Fallback seguro com optional chaining para startTime
+  const startTime = props?.startTime ?? Date.now();
 
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
@@ -27,6 +29,7 @@ export const IdleTimeoutModal: React.FC<IdleTimeoutModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="idle-timeout-title"
+      data-start-time={startTime}
     >
       <div
         id="idle-timeout-card"

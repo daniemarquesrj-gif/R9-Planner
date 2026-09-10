@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 export interface UseIdleTimeoutOptions {
   /**
+   * Ponto de início da medição de tempo / sessão em timestamp numérico.
+   * Valor padrão: Date.now().
+   */
+  startTime?: number;
+  /**
    * Tempo total de inatividade até o encerramento da sessão em milissegundos.
    * Padrão estipulado: 3 horas (10.800.000 ms).
    */
@@ -15,7 +20,7 @@ export interface UseIdleTimeoutOptions {
    * Callback disparado quando o tempo de inatividade chegar a zero.
    * Deve realizar a limpeza de estado local, supabase.auth.signOut() e redirecionar para a tela de login.
    */
-  onIdle: () => void | Promise<void>;
+  onIdle?: () => void | Promise<void>;
   /**
    * Se o monitoramento está ativado (somente para usuários com sessão ativa).
    */
@@ -23,6 +28,8 @@ export interface UseIdleTimeoutOptions {
 }
 
 export interface UseIdleTimeoutReturn {
+  startTime: number;
+  lastActivityTime: number;
   isPromptOpen: boolean;
   remainingSeconds: number;
   stayLoggedIn: () => void;
@@ -35,29 +42,56 @@ export const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 // 2 minutos de alerta visual prévio
 export const DEFAULT_PROMPT_BEFORE_MS = 2 * 60 * 1000;
 
-export function useIdleTimeout({
-  timeoutMs = THREE_HOURS_MS,
-  promptBeforeMs = DEFAULT_PROMPT_BEFORE_MS,
-  onIdle,
-  enabled = true,
-}: UseIdleTimeoutOptions): UseIdleTimeoutReturn {
+interface TimingState {
+  startTime: number;
+  lastActivity: number;
+}
+
+export function useIdleTimeout(options: UseIdleTimeoutOptions = {} as UseIdleTimeoutOptions): UseIdleTimeoutReturn {
+  // Garantir inicialização de tempo com Optional Chaining e fallback seguro para Date.now()
+  const initialStartTime = options?.startTime ?? Date.now();
+  const timeoutMs = options?.timeoutMs ?? THREE_HOURS_MS;
+  const promptBeforeMs = options?.promptBeforeMs ?? DEFAULT_PROMPT_BEFORE_MS;
+  const enabled = options?.enabled ?? true;
+  const onIdle = options?.onIdle;
+
+  // Estado de tempo com número sempre definido (nunca undefined)
+  const [startTimeState, setStartTimeState] = useState<number>(() => initialStartTime);
   const [isPromptOpen, setIsPromptOpen] = useState<boolean>(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
     Math.ceil(promptBeforeMs / 1000)
   );
 
+  // Objeto de medição de tempo/performance inicializado com segurança
+  const timingRef = useRef<TimingState>({
+    startTime: initialStartTime,
+    lastActivity: initialStartTime,
+  });
+
   // Referências para temporizadores e estado
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastActivityRef = useRef<number>(Date.now());
   const isLoggingOutRef = useRef<boolean>(false);
-  const onIdleRef = useRef<() => void | Promise<void>>(onIdle);
+  const onIdleRef = useRef<(() => void | Promise<void>) | undefined>(onIdle);
 
   // Manter referência sempre atualizada do callback sem causar re-execuções desnecessárias
   useEffect(() => {
     onIdleRef.current = onIdle;
   }, [onIdle]);
+
+  // Atualizar startTime caso opções mudem
+  useEffect(() => {
+    if (options?.startTime && options.startTime !== timingRef.current?.startTime) {
+      const safeTime = options.startTime ?? Date.now();
+      if (timingRef.current) {
+        timingRef.current.startTime = safeTime;
+      } else {
+        timingRef.current = { startTime: safeTime, lastActivity: safeTime };
+      }
+      setStartTimeState(safeTime);
+    }
+  }, [options?.startTime]);
 
   // Limpeza de todos os temporizadores pendentes
   const clearAllTimers = useCallback(() => {
@@ -84,8 +118,10 @@ export function useIdleTimeout({
     setIsPromptOpen(false);
 
     try {
-      console.warn('[IDLE TIMEOUT] Tempo limite de inatividade (3 horas) atingido. Desconectando usuário...');
-      await onIdleRef.current();
+      console.warn('[IDLE TIMEOUT] Tempo limite de inatividade atingido. Desconectando usuário...');
+      if (typeof onIdleRef.current === 'function') {
+        await onIdleRef.current();
+      }
     } catch (err) {
       console.error('[IDLE TIMEOUT] Erro ao executar logout por inatividade:', err);
     }
@@ -96,7 +132,21 @@ export function useIdleTimeout({
     if (!enabled || isLoggingOutRef.current) return;
 
     clearAllTimers();
-    lastActivityRef.current = Date.now();
+    const now = Date.now();
+
+    // Atualização com segurança de nulos e encadeamento opcional
+    if (timingRef.current) {
+      timingRef.current.lastActivity = now;
+      if (!timingRef.current.startTime) {
+        timingRef.current.startTime = options?.startTime ?? now;
+      }
+    } else {
+      timingRef.current = {
+        startTime: options?.startTime ?? now,
+        lastActivity: now,
+      };
+    }
+
     setIsPromptOpen(false);
 
     // 1. Agendar o Timer Principal de Logout (3 horas)
@@ -116,8 +166,10 @@ export function useIdleTimeout({
           clearInterval(countdownIntervalRef.current);
         }
         countdownIntervalRef.current = setInterval(() => {
-          const now = Date.now();
-          const elapsed = now - lastActivityRef.current;
+          const currentTime = Date.now();
+          // Acesso seguro com optional chaining garantindo fallback numérico
+          const safeLastActivity = timingRef.current?.lastActivity ?? currentTime;
+          const elapsed = currentTime - safeLastActivity;
           const timeLeftMs = Math.max(0, timeoutMs - elapsed);
           const secs = Math.ceil(timeLeftMs / 1000);
 
@@ -129,14 +181,11 @@ export function useIdleTimeout({
         }, 1000);
       }, warningDelay);
     }
-  }, [enabled, timeoutMs, promptBeforeMs, clearAllTimers, triggerLogout]);
+  }, [enabled, timeoutMs, promptBeforeMs, clearAllTimers, triggerLogout, options?.startTime]);
 
   // Manipulador de atividade do usuário com reinicialização dos timers
   const handleUserActivity = useCallback(() => {
     if (!enabled || isLoggingOutRef.current) return;
-
-    // Se o modal de aviso estiver aberto, a interação direta do usuário através do modal
-    // (Stay Logged In) ou através de eventos também prorroga o acesso
     scheduleTimers();
   }, [enabled, scheduleTimers]);
 
@@ -173,7 +222,7 @@ export function useIdleTimeout({
       'wheel',
     ];
 
-    // Throttle suave de 500ms para reduzir chamadas repetidas de mousemove em alta taxa de polling (ex: 1000Hz)
+    // Throttle suave de 500ms para reduzir chamadas repetidas de mousemove em alta taxa de polling
     let lastResetTime = Date.now();
     const throttledUserActivity = () => {
       const now = Date.now();
@@ -184,7 +233,6 @@ export function useIdleTimeout({
     };
 
     // Ouvintes atrelados a window e document com { passive: true, capture: true }
-    // para interceptar qualquer interação em qualquer ponto da DOM
     activityEvents.forEach((eventName) => {
       window.addEventListener(eventName, throttledUserActivity, { passive: true, capture: true });
       document.addEventListener(eventName, throttledUserActivity, { passive: true, capture: true });
@@ -195,7 +243,8 @@ export function useIdleTimeout({
       if (!enabled || isLoggingOutRef.current) return;
 
       const now = Date.now();
-      const elapsed = now - lastActivityRef.current;
+      const safeLastActivity = timingRef.current?.lastActivity ?? now;
+      const elapsed = now - safeLastActivity;
 
       // Se o computador ou aba ficou inativo por mais de 3 horas enquanto estava suspensa
       if (elapsed >= timeoutMs) {
@@ -224,7 +273,12 @@ export function useIdleTimeout({
     };
   }, [enabled, handleUserActivity, scheduleTimers, clearAllTimers, timeoutMs, promptBeforeMs, triggerLogout]);
 
+  const safeStartTime = timingRef.current?.startTime ?? startTimeState ?? options?.startTime ?? Date.now();
+  const safeLastActivity = timingRef.current?.lastActivity ?? Date.now();
+
   return {
+    startTime: safeStartTime,
+    lastActivityTime: safeLastActivity,
     isPromptOpen,
     remainingSeconds,
     stayLoggedIn,

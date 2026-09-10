@@ -66,7 +66,8 @@ export default function App() {
   }, []);
 
   // Monitoramento de Inatividade Global (Tempo limite estipulado: 3 horas)
-  const { isPromptOpen, remainingSeconds, stayLoggedIn, logoutNow } = useIdleTimeout({
+  const { isPromptOpen, remainingSeconds, stayLoggedIn, logoutNow, startTime } = useIdleTimeout({
+    startTime: Date.now(),
     timeoutMs: THREE_HOURS_MS, // 3 horas = 10.800.000 ms
     promptBeforeMs: 2 * 60 * 1000, // 2 minutos para o alerta visual com contagem
     onIdle: handleLogout,
@@ -165,6 +166,7 @@ export default function App() {
       <IdleTimeoutModal
         isOpen={isPromptOpen}
         remainingSeconds={remainingSeconds}
+        startTime={startTime}
         onStayLoggedIn={stayLoggedIn}
         onLogoutNow={logoutNow}
       />
