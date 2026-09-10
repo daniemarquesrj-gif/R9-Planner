@@ -3,7 +3,7 @@ import Planner from './components/Planner.tsx';
 import Login from './components/Login.jsx';
 import ResetPassword from './components/ResetPassword.tsx';
 import { IdleTimeoutModal } from './components/IdleTimeoutModal.tsx';
-import { useIdleTimeout } from './hooks/useIdleTimeout.ts';
+import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout.ts';
 import { supabase } from './supabase.js';
 
 export default function App() {
@@ -26,15 +26,49 @@ export default function App() {
     );
   });
 
+  // Executa a limpeza obrigatória de estado local, supabase.auth.signOut() e força o redirecionamento
   const handleLogout = useCallback(async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+    try {
+      console.log('[LOGOUT] Encerrando sessão do Supabase...');
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('[LOGOUT] Erro ao deslogar do Supabase:', err);
+    } finally {
+      // 1. Limpeza do estado local do React
+      setSession(null);
+
+      // 2. Limpeza de estado local no navegador (sessionStorage e dados de autenticação em localStorage)
+      try {
+        sessionStorage.clear();
+        Object.keys(localStorage).forEach((key) => {
+          if (
+            key.startsWith('sb-') ||
+            key.includes('supabase') ||
+            key.includes('auth') ||
+            key.includes('token')
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch (storageErr) {
+        console.error('[LOGOUT] Erro ao limpar storage local:', storageErr);
+      }
+
+      // 3. Forçar o redirecionamento para a tela de login
+      if (typeof window !== 'undefined') {
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        } else {
+          window.location.reload();
+        }
+      }
+    }
   }, []);
 
-  // Monitoramento de Inatividade de Sessão (30 minutos timeout, aviso com 2 minutos restantes)
+  // Monitoramento de Inatividade Global (Tempo limite estipulado: 3 horas)
   const { isPromptOpen, remainingSeconds, stayLoggedIn, logoutNow } = useIdleTimeout({
-    timeoutMs: 30 * 60 * 1000,
-    promptBeforeMs: 2 * 60 * 1000,
+    timeoutMs: THREE_HOURS_MS, // 3 horas = 10.800.000 ms
+    promptBeforeMs: 2 * 60 * 1000, // 2 minutos para o alerta visual com contagem
     onIdle: handleLogout,
     enabled: Boolean(session && !loading && !isResettingPassword),
   });
@@ -113,7 +147,16 @@ export default function App() {
   }
 
   if (!session) {
-    return <Login onLoginSuccess={(user) => setSession({ user })} />;
+    return (
+      <Login
+        onLoginSuccess={(user) => {
+          setSession({ user });
+          if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+            window.history.replaceState({}, document.title, '/');
+          }
+        }}
+      />
+    );
   }
 
   return (
