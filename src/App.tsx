@@ -4,6 +4,8 @@ import Login from './components/Login.jsx';
 import ResetPassword from './components/ResetPassword.tsx';
 import { IdleTimeoutModal } from './components/IdleTimeoutModal.tsx';
 import { useIdleTimeout, THREE_HOURS_MS } from './hooks/useIdleTimeout.ts';
+import { AppUpdateBanner } from './components/AppUpdateBanner.tsx';
+import { useAppVersionCheck } from './hooks/useAppVersionCheck.ts';
 import { supabase } from './supabase.js';
 
 export default function App() {
@@ -24,6 +26,19 @@ export default function App() {
       (search.includes('code=') && search.includes('type=recovery')) ||
       url.includes('recovery')
     );
+  });
+
+  // Verificação Inteligente de Versão ativada por foco de aba (visibilitychange / window.focus)
+  const {
+    isUpdateAvailable,
+    isDismissed: isUpdateDismissed,
+    latestVersion,
+    applyUpdate,
+    dismissUpdate,
+    reopenBanner,
+  } = useAppVersionCheck({
+    minCheckIntervalMs: 60 * 1000, // Throttle de 1 minuto entre checagens por foco de aba
+    enabled: true,
   });
 
   // Executa a limpeza obrigatória de estado local, supabase.auth.signOut() e força o redirecionamento
@@ -127,36 +142,56 @@ export default function App() {
   // Rota/Tela dedicada de Redefinição de Senha
   if (isResettingPassword) {
     return (
-      <ResetPassword
-        onPasswordResetSuccess={(user) => {
-          setIsResettingPassword(false);
-          if (user) {
-            setSession({ user });
-          }
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({}, document.title, '/');
-          }
-        }}
-        onCancel={() => {
-          setIsResettingPassword(false);
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({}, document.title, '/');
-          }
-        }}
-      />
+      <>
+        <ResetPassword
+          onPasswordResetSuccess={(user) => {
+            setIsResettingPassword(false);
+            if (user) {
+              setSession({ user });
+            }
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, document.title, '/');
+            }
+          }}
+          onCancel={() => {
+            setIsResettingPassword(false);
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, document.title, '/');
+            }
+          }}
+        />
+        <AppUpdateBanner
+          isUpdateAvailable={isUpdateAvailable}
+          isDismissed={isUpdateDismissed}
+          latestVersion={latestVersion}
+          onApplyUpdate={applyUpdate}
+          onDismiss={dismissUpdate}
+          onReopen={reopenBanner}
+        />
+      </>
     );
   }
 
   if (!session) {
     return (
-      <Login
-        onLoginSuccess={(user) => {
-          setSession({ user });
-          if (typeof window !== 'undefined' && window.location.pathname === '/login') {
-            window.history.replaceState({}, document.title, '/');
-          }
-        }}
-      />
+      <>
+        <Login
+          onLoginSuccess={(user) => {
+            setSession({ user });
+            if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+              window.history.replaceState({}, document.title, '/');
+            }
+          }}
+        />
+        <AppUpdateBanner
+          isUpdateAvailable={isUpdateAvailable}
+          isDismissed={isUpdateDismissed}
+          latestVersion={latestVersion}
+          onApplyUpdate={applyUpdate}
+          onDismiss={dismissUpdate}
+          onReopen={reopenBanner}
+        />
+      </>
     );
   }
 
@@ -169,6 +204,14 @@ export default function App() {
         startTime={startTime}
         onStayLoggedIn={stayLoggedIn}
         onLogoutNow={logoutNow}
+      />
+      <AppUpdateBanner
+        isUpdateAvailable={isUpdateAvailable}
+        isDismissed={isUpdateDismissed}
+        latestVersion={latestVersion}
+        onApplyUpdate={applyUpdate}
+        onDismiss={dismissUpdate}
+        onReopen={reopenBanner}
       />
     </>
   );
