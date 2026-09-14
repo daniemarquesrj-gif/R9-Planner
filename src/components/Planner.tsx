@@ -657,6 +657,10 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       return updatedList;
     });
 
+    if (selectedTask && selectedTask.id === taskId) {
+      setSelectedTask(updatedTask);
+    }
+
     if (nextRecurrentTask && nextRecurrentTask.scheduledDate) {
       const [ny, nm, nd] = nextRecurrentTask.scheduledDate.split('-');
       setToastMessage(

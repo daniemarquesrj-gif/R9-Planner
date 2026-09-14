@@ -29,7 +29,7 @@ async function checkNativeCompletedByAdminColumn() {
 }
 
 if (typeof window !== 'undefined') {
-  setTimeout(checkNativeCompletedByAdminColumn, 1500);
+  checkNativeCompletedByAdminColumn();
 }
 
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
@@ -311,6 +311,46 @@ export function mapDbRowToTask(row: any): Task {
     });
   }
 
+  // Normalização explícita de submissões para garantir propagação de completedByAdmin / completed_by_admin
+  const normalizedSubmissions: Record<string, UserTaskSubmission> = {};
+  Object.entries(userSubmissions).forEach(([uid, sub]: [string, any]) => {
+    if (!sub) return;
+    const isSubAdmin = Boolean(
+      sub.completedByAdmin === true ||
+      sub.completed_by_admin === true ||
+      sub.finalizada_por_admin === true
+    );
+    normalizedSubmissions[uid] = {
+      ...sub,
+      userId: sub.userId ?? uid,
+      completed: Boolean(sub.completed),
+      completedByAdmin: isSubAdmin,
+      completed_by_admin: isSubAdmin,
+      finalizada_por_admin: isSubAdmin,
+    };
+  });
+
+  // Verifica se todas as submissões registradas foram concluídas por Administrador
+  const submissionList = Object.values(normalizedSubmissions);
+  const hasSubmissions = submissionList.length > 0;
+  const allSubmissionsCompletedByAdmin =
+    hasSubmissions &&
+    submissionList.every(
+      (s) => s.completed && (s.completedByAdmin || s.completed_by_admin || s.finalizada_por_admin)
+    );
+
+  const isTaskFinishedByAdmin = Boolean(
+    row.completed_by_admin === true ||
+    row.finalizada_por_admin === true ||
+    row.completedByAdmin === true ||
+    (rawCustom &&
+      typeof rawCustom === 'object' &&
+      (rawCustom.completed_by_admin === true ||
+        rawCustom.completedByAdmin === true ||
+        rawCustom.finalizada_por_admin === true)) ||
+    (row.status === 'concluida' && allSubmissionsCompletedByAdmin)
+  );
+
   return {
     id: String(row.id),
     title: row.titulo ?? row.title ?? 'Sem título',
@@ -334,37 +374,10 @@ export function mapDbRowToTask(row: any): Task {
     comments,
     customFields,
     customFieldValues,
-    userSubmissions,
-    completedByAdmin: Boolean(
-      row.completed_by_admin === true ||
-      row.finalizada_por_admin === true ||
-      row.completedByAdmin === true ||
-      (rawCustom &&
-        typeof rawCustom === 'object' &&
-        (rawCustom.completed_by_admin === true ||
-          rawCustom.completedByAdmin === true ||
-          rawCustom.finalizada_por_admin === true))
-    ),
-    completed_by_admin: Boolean(
-      row.completed_by_admin === true ||
-      row.finalizada_por_admin === true ||
-      row.completedByAdmin === true ||
-      (rawCustom &&
-        typeof rawCustom === 'object' &&
-        (rawCustom.completed_by_admin === true ||
-          rawCustom.completedByAdmin === true ||
-          rawCustom.finalizada_por_admin === true))
-    ),
-    finalizada_por_admin: Boolean(
-      row.completed_by_admin === true ||
-      row.finalizada_por_admin === true ||
-      row.completedByAdmin === true ||
-      (rawCustom &&
-        typeof rawCustom === 'object' &&
-        (rawCustom.completed_by_admin === true ||
-          rawCustom.completedByAdmin === true ||
-          rawCustom.finalizada_por_admin === true))
-    ),
+    userSubmissions: normalizedSubmissions,
+    completedByAdmin: isTaskFinishedByAdmin,
+    completed_by_admin: isTaskFinishedByAdmin,
+    finalizada_por_admin: isTaskFinishedByAdmin,
   };
 }
 
@@ -478,12 +491,22 @@ export function mapTaskToDbPayload(
           ? sub.observation.trim()
           : undefined;
 
+      const isSubAdmin = Boolean(
+        sub.completedByAdmin === true ||
+        sub.completed_by_admin === true ||
+        sub.finalizada_por_admin === true
+      );
+
       sanitizedSubmissions[userId] = {
         ...sub,
         userId: sub.userId ?? userId,
+        completed: Boolean(sub.completed),
         values: subValues,
         observacao: cleanObs ?? undefined,
         observation: cleanObs ?? undefined,
+        completedByAdmin: isSubAdmin,
+        completed_by_admin: isSubAdmin,
+        finalizada_por_admin: isSubAdmin,
       };
     });
 
@@ -770,6 +793,10 @@ export const taskService = {
         ? existingSub.observacao
         : existingSub.observation;
 
+    const isMemberAdmin = completed
+      ? (isAdmin !== undefined ? Boolean(isAdmin) : Boolean(existingSub.completedByAdmin || existingSub.completed_by_admin))
+      : false;
+
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions ?? {}),
       [memberId]: {
@@ -783,6 +810,9 @@ export const taskService = {
         values: values !== undefined ? values : (existingSub.values ?? {}),
         observacao: finalObservacao,
         observation: finalObservacao,
+        completedByAdmin: isMemberAdmin,
+        completed_by_admin: isMemberAdmin,
+        finalizada_por_admin: isMemberAdmin,
       },
     };
 
@@ -836,10 +866,19 @@ export const taskService = {
       ? 'em_andamento'
       : 'pendente';
 
+    // Rastreabilidade no resumo geral: tarefa integralmente concluída por admin se todos os membros foram concluídos por admin ou ação direta de admin
+    const allSubsFinishedByAdmin =
+      allCompleted &&
+      assigneeIds.every(
+        (id) =>
+          updatedSubmissions[id]?.completed &&
+          (updatedSubmissions[id]?.completedByAdmin ||
+            updatedSubmissions[id]?.completed_by_admin ||
+            updatedSubmissions[id]?.finalizada_por_admin)
+      );
+
     const isByAdmin = allCompleted
-      ? isAdmin !== undefined
-        ? Boolean(isAdmin)
-        : Boolean(task.completedByAdmin ?? task.completed_by_admin ?? false)
+      ? Boolean(isAdmin || allSubsFinishedByAdmin || task.completedByAdmin || task.completed_by_admin)
       : false;
 
     const updatedTask: Task = {

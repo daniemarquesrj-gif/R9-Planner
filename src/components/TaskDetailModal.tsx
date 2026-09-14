@@ -413,6 +413,7 @@ export default function TaskDetailModal({
     // 2. Atualizar submissão do membro
     const memberName = assignedMemberList.find((m) => m.id === memberId)?.name || 'Usuário';
     const sub = getMemberSubmission(memberId);
+    const isActionAdmin = Boolean(isAdmin || currentUser?.role === 'admin');
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions || {}),
       [memberId]: {
@@ -424,6 +425,9 @@ export default function TaskDetailModal({
         values: sanitizedValues,
         observacao: activeMemberObservacao.trim() || undefined,
         observation: activeMemberObservacao.trim() || undefined,
+        completedByAdmin: isActionAdmin,
+        completed_by_admin: isActionAdmin,
+        finalizada_por_admin: isActionAdmin,
       },
     };
 
@@ -444,8 +448,18 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
+    const allSubsFinishedByAdmin =
+      willAllBeCompleted &&
+      effectiveAssigneeIds.every(
+        (id) =>
+          updatedSubmissions[id]?.completed &&
+          (updatedSubmissions[id]?.completedByAdmin ||
+            updatedSubmissions[id]?.completed_by_admin ||
+            updatedSubmissions[id]?.finalizada_por_admin)
+      );
+
     const isFinishedByAdmin = willAllBeCompleted
-      ? Boolean(isAdmin || currentUser?.role === 'admin')
+      ? Boolean(isActionAdmin || allSubsFinishedByAdmin || task.completedByAdmin || task.completed_by_admin)
       : false;
 
     const updatedTask: Task = {
@@ -548,6 +562,9 @@ export default function TaskDetailModal({
         completedAt: undefined,
         observacao: sub.observacao !== undefined ? sub.observacao : sub.observation,
         observation: sub.observacao !== undefined ? sub.observacao : sub.observation,
+        completedByAdmin: false,
+        completed_by_admin: false,
+        finalizada_por_admin: false,
       },
     };
 
@@ -563,6 +580,9 @@ export default function TaskDetailModal({
         ...task,
         status: newStatus,
         userSubmissions: updatedSubmissions,
+        completedByAdmin: false,
+        completed_by_admin: false,
+        finalizada_por_admin: false,
       });
       setSuccessFeedback(`Parte de ${memberName} reaberta como pendente no Supabase.`);
     } catch (err: any) {
@@ -600,6 +620,10 @@ export default function TaskDetailModal({
         ? (activeMemberObservacao.trim() || undefined)
         : (sub.observacao !== undefined ? sub.observacao : sub.observation);
 
+    // Quando o admin clica para finalizar a parte, grava explicitamente completedByAdmin: true
+    const isActionByAdmin = Boolean(isAdmin || currentUser?.role === 'admin');
+    const isMemberCompletedByAdmin = newCompleted ? isActionByAdmin : false;
+
     const updatedSubmissions: Record<string, UserTaskSubmission> = {
       ...(task.userSubmissions ?? {}),
       [memberId]: {
@@ -607,10 +631,13 @@ export default function TaskDetailModal({
         userId: memberId,
         userName: memberName,
         completed: newCompleted,
-        completedAt: newCompleted ? new Date().toISOString() : undefined,
+        completedAt: newCompleted ? (sub.completedAt || new Date().toISOString()) : undefined,
         values: valuesToUse,
         observacao: observacaoToUse,
         observation: observacaoToUse,
+        completedByAdmin: isMemberCompletedByAdmin,
+        completed_by_admin: isMemberCompletedByAdmin,
+        finalizada_por_admin: isMemberCompletedByAdmin,
       },
     };
 
@@ -631,7 +658,20 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
-    const isFinishedByAdmin = willAllBeCompleted;
+    // Rastreabilidade no resumo geral: se todos os membros foram concluídos e todos foram por admin (ou ação feita por admin)
+    const allSubsFinishedByAdmin =
+      willAllBeCompleted &&
+      effectiveAssigneeIds.every(
+        (id) =>
+          updatedSubmissions[id]?.completed &&
+          (updatedSubmissions[id]?.completedByAdmin ||
+            updatedSubmissions[id]?.completed_by_admin ||
+            updatedSubmissions[id]?.finalizada_por_admin)
+      );
+
+    const isFinishedByAdmin = willAllBeCompleted
+      ? Boolean(isActionByAdmin || allSubsFinishedByAdmin || task.completedByAdmin || task.completed_by_admin)
+      : false;
 
     const updatedTask: Task = {
       ...task,
@@ -998,11 +1038,22 @@ export default function TaskDetailModal({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {isCompleted ? (
-                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1">
-                              <span>Concluído</span>
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-1">
+                                <span>Concluído</span>
+                              </span>
+                              {(sub.completedByAdmin || sub.completed_by_admin || sub.finalizada_por_admin) && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-[#004691] border border-blue-200/90 shadow-2xs"
+                                  title="Esta parte foi finalizada diretamente por um Administrador"
+                                >
+                                  <ShieldCheck className="w-2.5 h-2.5 text-[#004691]" />
+                                  <span>Admin</span>
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                               Pendente
@@ -1194,10 +1245,23 @@ export default function TaskDetailModal({
                   <div className="pt-2">
                     {isCurrentSelectedCompleted ? (
                       <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
-                        <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          Formulário finalizado por este usuário
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-emerald-800 font-semibold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            Formulário finalizado por este usuário
+                          </span>
+                          {(currentSelectedSubmission?.completedByAdmin ||
+                            currentSelectedSubmission?.completed_by_admin ||
+                            currentSelectedSubmission?.finalizada_por_admin) && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-[#004691] border border-blue-300 shadow-2xs"
+                              title="Esta parte foi concluída por um Administrador"
+                            >
+                              <ShieldCheck className="w-3 h-3 text-[#004691]" />
+                              Finalizada por Admin
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           disabled={isSaving}
@@ -1797,26 +1861,55 @@ export default function TaskDetailModal({
                             </div>
                           </div>
 
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
-                              isCompleted
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/60'
-                                : 'bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            {isCompleted ? 'Concluído' : 'Pendente'}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
+                                isCompleted
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/60'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {isCompleted ? 'Concluído' : 'Pendente'}
+                            </span>
+
+                            {isCompleted &&
+                              (sub.completedByAdmin ||
+                                sub.completed_by_admin ||
+                                sub.finalizada_por_admin) && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-[#004691] border border-blue-200/90 shadow-2xs shrink-0"
+                                  title="Esta parte foi finalizada diretamente por um Administrador"
+                                >
+                                  <ShieldCheck className="w-2.5 h-2.5 text-[#004691]" />
+                                  <span>Admin</span>
+                                </span>
+                              )}
+                          </div>
                         </div>
 
                         {/* Botão de Ação Rápida do Administrador */}
-                        <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
-                          <span className="text-[10px] text-slate-400">
-                            {isCompleted
-                              ? sub.completedAt
-                                ? `Concluído em ${new Date(sub.completedAt).toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-                                : 'Finalizado'
-                              : 'Aguardando preenchimento'}
-                          </span>
+                        <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-1">
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                            {isCompleted ? (
+                              <>
+                                <span className="text-slate-400">
+                                  {sub.completedAt
+                                    ? `Concluído em ${new Date(sub.completedAt).toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                                    : 'Finalizado'}
+                                </span>
+                                {(sub.completedByAdmin ||
+                                  sub.completed_by_admin ||
+                                  sub.finalizada_por_admin) && (
+                                  <span className="inline-flex items-center gap-0.5 text-[#004691] font-semibold bg-blue-50/80 px-1 py-0.2 rounded border border-blue-200/60">
+                                    <ShieldCheck className="w-2.5 h-2.5 text-[#004691]" />
+                                    <span>Por Admin</span>
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-slate-400">Aguardando preenchimento</span>
+                            )}
+                          </div>
 
                           <button
                             type="button"

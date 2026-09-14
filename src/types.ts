@@ -48,6 +48,9 @@ export interface UserTaskSubmission {
   observacao?: string; // Observação individual opcional sobre a parte do responsável
   observation?: string; // alias opcional
   values: Record<string, string | number>; // fieldId -> value
+  completedByAdmin?: boolean; // Sinaliza se esta submissão/parte foi concluída por um Administrador
+  completed_by_admin?: boolean; // Alias compatível com Supabase
+  finalizada_por_admin?: boolean; // Alias em português
 }
 
 export interface TagBucket {

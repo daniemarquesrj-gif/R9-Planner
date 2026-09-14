@@ -242,7 +242,18 @@ export default function MemberPendingTasksPanel({
                         <span className="italic text-zinc-400">Não agendada</span>
                       )}
 
-                      {isConcluida && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                      {isConcluida && (
+                        Boolean(
+                          task.completedByAdmin ||
+                          task.completed_by_admin ||
+                          task.finalizada_por_admin ||
+                          (task.userSubmissions &&
+                            Object.keys(task.userSubmissions).length > 0 &&
+                            Object.values(task.userSubmissions).every(
+                              (s) => s.completed && (s.completedByAdmin || s.completed_by_admin || s.finalizada_por_admin)
+                            ))
+                        )
+                      ) && (
                         <>
                           <span>•</span>
                           <span

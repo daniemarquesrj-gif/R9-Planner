@@ -36,7 +36,15 @@ export default function TaskCard({
   const isConcluida = task.status === 'concluida';
   const isEmAndamento = task.status === 'em_andamento';
   const isFinishedByAdmin = Boolean(
-    task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin
+    task.completedByAdmin ||
+    task.completed_by_admin ||
+    task.finalizada_por_admin ||
+    (isConcluida &&
+      task.userSubmissions &&
+      Object.keys(task.userSubmissions).length > 0 &&
+      Object.values(task.userSubmissions).every(
+        (s) => s.completed && (s.completedByAdmin || s.completed_by_admin || s.finalizada_por_admin)
+      ))
   );
 
   // Alerta de Atraso: tarefa pendente com data agendada anterior ao dia de hoje
