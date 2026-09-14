@@ -6,6 +6,7 @@ import {
   GripVertical,
   CheckSquare,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { Task, TeamMember, UserRole } from '../types.ts';
 import { getTodayISO } from '../utils/dateUtils.ts';
@@ -34,6 +35,9 @@ export default function TaskCard({
   const isAdmin = userRole === 'admin';
   const isConcluida = task.status === 'concluida';
   const isEmAndamento = task.status === 'em_andamento';
+  const isFinishedByAdmin = Boolean(
+    task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin
+  );
 
   // Alerta de Atraso: tarefa pendente com data agendada anterior ao dia de hoje
   const isOverdue = Boolean(
@@ -194,6 +198,17 @@ export default function TaskCard({
                 <span>Atrasada</span>
               </span>
             )}
+
+            {/* Badge Indicador de Finalizada por Administrador */}
+            {isConcluida && isFinishedByAdmin && (
+              <span
+                className="inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.2 rounded-md bg-blue-50 text-[#004691] border border-blue-200/90 shadow-2xs shrink-0"
+                title="Esta tarefa foi finalizada por um Administrador"
+              >
+                <ShieldCheck className="w-2.5 h-2.5 text-[#004691] shrink-0" />
+                <span>Admin</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -281,6 +296,16 @@ export default function TaskCard({
             >
               <MessageSquare className="w-3 h-3" />
               <span>{task.comments.length}</span>
+            </div>
+          )}
+
+          {/* Selo no Rodapé: Conclusão por Administrador */}
+          {isConcluida && isFinishedByAdmin && (
+            <div
+              className="flex items-center gap-0.5 text-[9.5px] font-semibold text-[#004691] bg-blue-50/80 px-1 py-0.5 rounded border border-blue-200/60 shrink-0"
+              title="Ação concluída por um Administrador"
+            >
+              <ShieldCheck className="w-3 h-3 text-[#004691]" />
             </div>
           )}
         </div>

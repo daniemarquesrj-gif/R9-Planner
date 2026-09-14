@@ -79,4 +79,7 @@ export interface Task {
   customFields?: CustomFormField[]; // Campos dinâmicos configurados pelo admin
   customFieldValues?: CustomFieldValue[]; // Valores preenchidos legado/unificado
   userSubmissions?: Record<string, UserTaskSubmission>; // Submissão individual de cada usuário responsável
+  completedByAdmin?: boolean; // Sinaliza se a tarefa foi finalizada por um Administrador
+  completed_by_admin?: boolean; // Alias para compatibilidade direta com payloads do Supabase
+  finalizada_por_admin?: boolean; // Alias alternativo em português
 }

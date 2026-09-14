@@ -614,7 +614,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
   // Execução unificada da conclusão de tarefas com suporte a Geração Automática por Recorrência no Supabase
   const executeCompleteTask = async (
     taskOrId: string | Task,
-    filledValues?: CustomFieldValue[]
+    filledValues?: CustomFieldValue[],
+    completedByAdmin?: boolean
   ) => {
     const targetTask =
       typeof taskOrId === 'string'
@@ -623,10 +624,20 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     if (!targetTask) return;
 
     const taskId = targetTask.id;
+    // Rastreabilidade: computa se a conclusão foi executada por perfil Administrador
+    const isActionByAdmin =
+      completedByAdmin !== undefined
+        ? Boolean(completedByAdmin)
+        : userRole === 'admin' || currentUser?.role === 'admin';
 
-    // Executa a atualização no Supabase com lógica de recorrência
+    // Executa a atualização no Supabase com lógica de recorrência e rastreabilidade admin
     const { updatedTask, nextRecurrentTask, error } =
-      await taskService.updateTaskStatus(targetTask, 'concluida', filledValues);
+      await taskService.updateTaskStatus(
+        targetTask,
+        'concluida',
+        filledValues,
+        isActionByAdmin
+      );
 
     if (error) {
       console.error('Erro ao concluir tarefa no Supabase:', error);
@@ -649,11 +660,13 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     if (nextRecurrentTask && nextRecurrentTask.scheduledDate) {
       const [ny, nm, nd] = nextRecurrentTask.scheduledDate.split('-');
       setToastMessage(
-        `Tarefa concluída! Nova ocorrência inserida no Supabase para ${nd}/${nm} (${targetTask.recurrence}).`
+        `Tarefa concluída${isActionByAdmin ? ' por Administrador' : ''}! Nova ocorrência inserida no Supabase para ${nd}/${nm} (${targetTask.recurrence}).`
       );
       setTimeout(() => setToastMessage(null), 6000);
     } else {
-      setToastMessage(`Tarefa "${targetTask.title}" concluída com sucesso no Supabase.`);
+      setToastMessage(
+        `Tarefa "${targetTask.title}" concluída com sucesso${isActionByAdmin ? ' por Administrador' : ''} no Supabase.`
+      );
       setTimeout(() => setToastMessage(null), 3000);
     }
   };
@@ -665,8 +678,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     if (!task) return;
 
     if (task.status === 'concluida') {
-      // Reverter para pendente no Supabase
-      const { updatedTask } = await taskService.updateTaskStatus(task, 'pendente');
+      // Reverter para pendente no Supabase (reseta a flag completed_by_admin)
+      const { updatedTask } = await taskService.updateTaskStatus(task, 'pendente', undefined, false);
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? updatedTask : t))
       );
@@ -718,7 +731,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
       setTimeout(() => setToastMessage(null), 4000);
     } else {
       // Conclui diretamente e gera a próxima ocorrência recorrente caso aplicável
-      await executeCompleteTask(task);
+      const isByAdmin = userRole === 'admin' || currentUser?.role === 'admin';
+      await executeCompleteTask(task, undefined, isByAdmin);
     }
   };
 
@@ -727,7 +741,8 @@ export default function Planner({ user, onLogout }: PlannerProps) {
     taskId: string,
     filledValues: CustomFieldValue[]
   ) => {
-    await executeCompleteTask(taskId, filledValues);
+    const isByAdmin = userRole === 'admin' || currentUser?.role === 'admin';
+    await executeCompleteTask(taskId, filledValues, isByAdmin);
     setIsCompletionModalOpen(false);
     setCompletingTask(null);
   };
@@ -748,17 +763,33 @@ export default function Planner({ user, onLogout }: PlannerProps) {
 
     if (isBecomingCompleted) {
       // Se acabou de ser marcada como concluída pelo modal de detalhes, usa a rota com criação de recorrência
-      await executeCompleteTask(updated, updated.customFieldValues);
+      const isByAdmin =
+        updated.completedByAdmin !== undefined
+          ? updated.completedByAdmin
+          : userRole === 'admin' || currentUser?.role === 'admin';
+
+      await executeCompleteTask(updated, updated.customFieldValues, isByAdmin);
       setSelectedTask(updated);
       return;
     }
 
+    // Se o status estiver sendo revertido de concluida para outro, garantir reset de completed_by_admin
+    const sanitizedUpdated: Task = {
+      ...updated,
+      completedByAdmin:
+        updated.status === 'concluida' ? Boolean(updated.completedByAdmin) : false,
+      completed_by_admin:
+        updated.status === 'concluida' ? Boolean(updated.completed_by_admin) : false,
+      finalizada_por_admin:
+        updated.status === 'concluida' ? Boolean(updated.finalizada_por_admin) : false,
+    };
+
     // Atualização otimista
-    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    setSelectedTask(updated);
+    setTasks((prev) => prev.map((t) => (t.id === sanitizedUpdated.id ? sanitizedUpdated : t)));
+    setSelectedTask(sanitizedUpdated);
 
     // Persistir no Supabase
-    const { data: savedTask, error } = await taskService.updateTask(updated);
+    const { data: savedTask, error } = await taskService.updateTask(sanitizedUpdated);
     if (error) {
       console.error('Erro ao salvar alterações no Supabase:', error);
       // Reverter estado otimista

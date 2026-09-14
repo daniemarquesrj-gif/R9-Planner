@@ -444,11 +444,18 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
+    const isFinishedByAdmin = willAllBeCompleted
+      ? Boolean(isAdmin || currentUser?.role === 'admin')
+      : false;
+
     const updatedTask: Task = {
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
       customFieldValues: consolidatedValues,
+      completedByAdmin: isFinishedByAdmin,
+      completed_by_admin: isFinishedByAdmin,
+      finalizada_por_admin: isFinishedByAdmin,
     };
 
     console.log('[SUPABASE AUDIT - COMPLETE MEMBER PORTION]', {
@@ -624,11 +631,16 @@ export default function TaskDetailModal({
       ? 'em_andamento'
       : 'pendente';
 
+    const isFinishedByAdmin = willAllBeCompleted;
+
     const updatedTask: Task = {
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
       customFieldValues: consolidatedValues,
+      completedByAdmin: isFinishedByAdmin,
+      completed_by_admin: isFinishedByAdmin,
+      finalizada_por_admin: isFinishedByAdmin,
     };
 
     console.log('[SUPABASE AUDIT - ADMIN TOGGLE MEMBER]', {
@@ -694,11 +706,17 @@ export default function TaskDetailModal({
       onUpdateTask({
         ...task,
         status: 'concluida',
+        completedByAdmin: Boolean(isAdmin || currentUser?.role === 'admin'),
+        completed_by_admin: Boolean(isAdmin || currentUser?.role === 'admin'),
+        finalizada_por_admin: Boolean(isAdmin || currentUser?.role === 'admin'),
       });
     } else {
       onUpdateTask({
         ...task,
         status: newStatus,
+        completedByAdmin: false,
+        completed_by_admin: false,
+        finalizada_por_admin: false,
       });
     }
   };
@@ -826,6 +844,15 @@ export default function TaskDetailModal({
                     Todos Concluíram
                   </span>
                 )}
+                {task.status === 'concluida' && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-[#004691] border border-blue-200 shadow-2xs"
+                    title="Esta tarefa foi finalizada por um Administrador"
+                  >
+                    <ShieldCheck className="w-3 h-3 text-[#004691]" />
+                    Finalizada por Admin
+                  </span>
+                )}
               </div>
               <button
                 type="button"
@@ -890,6 +917,14 @@ export default function TaskDetailModal({
                     {task.priority}
                   </div>
                 </div>
+
+                {/* Feedback sutil de conclusão por Administrador na visão do membro */}
+                {task.status === 'concluida' && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                  <div className="col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200/80 text-xs text-[#004691] font-medium">
+                    <ShieldCheck className="w-4 h-4 text-[#004691] shrink-0" />
+                    <span>Esta ação foi finalizada diretamente por um <strong>Administrador</strong>.</span>
+                  </div>
+                )}
               </div>
 
               {/* LISTA DE USUÁRIOS RESPONSÁVEIS COM CÍRCULOS DE STATUS (Prints 1 e 2) */}
@@ -1391,6 +1426,16 @@ export default function TaskDetailModal({
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>Modo Administrador</span>
                 </span>
+
+                {task.status === 'concluida' && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-[#004691] border border-blue-300 shadow-2xs"
+                    title="Esta tarefa foi finalizada por um Administrador"
+                  >
+                    <ShieldCheck className="w-3 h-3 text-[#004691]" />
+                    Finalizada por Admin
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1480,6 +1525,14 @@ export default function TaskDetailModal({
                     <option value="Baixa">Baixa</option>
                   </select>
                 </div>
+
+                {/* Feedback de Conclusão por Administrador no formulário do Admin */}
+                {task.status === 'concluida' && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                  <div className="col-span-full flex items-center gap-2 p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-xs text-[#004691]">
+                    <ShieldCheck className="w-4 h-4 text-[#004691] shrink-0" />
+                    <span>Rastreabilidade ativada: Esta ação foi registrada como <strong>Finalizada por um Administrador</strong>.</span>
+                  </div>
+                )}
 
                 {/* Recorrência */}
                 <div className={task.recurrence === 'Personalizado' ? 'sm:col-span-2' : ''}>

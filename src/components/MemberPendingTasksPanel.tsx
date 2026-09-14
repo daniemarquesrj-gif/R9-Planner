@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Filter,
   Calendar,
+  ShieldCheck,
 } from 'lucide-react';
 import { Task, TeamMember } from '../types.ts';
 import { formatISO } from '../utils/dateUtils.ts';
@@ -239,6 +240,19 @@ export default function MemberPendingTasksPanel({
                         </span>
                       ) : (
                         <span className="italic text-zinc-400">Não agendada</span>
+                      )}
+
+                      {isConcluida && (task.completedByAdmin || task.completed_by_admin || task.finalizada_por_admin) && (
+                        <>
+                          <span>•</span>
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[9.5px] font-semibold text-[#004691] bg-blue-50 px-1 py-0.2 rounded border border-blue-200/60"
+                            title="Finalizada por Administrador"
+                          >
+                            <ShieldCheck className="w-2.5 h-2.5 text-[#004691]" />
+                            <span>Admin</span>
+                          </span>
+                        </>
                       )}
                     </div>
                   </div>

@@ -10,6 +10,28 @@ function isValidUUID(val?: string | null): boolean {
 // Canal global de broadcast para sincronização instantânea entre múltiplos usuários
 let realtimeSyncChannel: any = null;
 
+// Rastreabilidade: Detecção dinâmica e segura da coluna nativa completed_by_admin no Supabase
+let hasNativeCompletedByAdminColumn = false;
+let checkedNativeColumn = false;
+
+async function checkNativeCompletedByAdminColumn() {
+  if (checkedNativeColumn) return;
+  checkedNativeColumn = true;
+  try {
+    const { error } = await supabase.from('tarefas').select('completed_by_admin').limit(1);
+    if (!error) {
+      hasNativeCompletedByAdminColumn = true;
+      console.info('[SUPABASE] Coluna nativa completed_by_admin ativa no schema da tabela tarefas.');
+    }
+  } catch {
+    hasNativeCompletedByAdminColumn = false;
+  }
+}
+
+if (typeof window !== 'undefined') {
+  setTimeout(checkNativeCompletedByAdminColumn, 1500);
+}
+
 // Trava atômica em memória para prevenir execuções concorrentes simultâneas (duplos cliques ou disparos paralelos)
 const recurrenceLocks = new Set<string>();
 
@@ -313,6 +335,36 @@ export function mapDbRowToTask(row: any): Task {
     customFields,
     customFieldValues,
     userSubmissions,
+    completedByAdmin: Boolean(
+      row.completed_by_admin === true ||
+      row.finalizada_por_admin === true ||
+      row.completedByAdmin === true ||
+      (rawCustom &&
+        typeof rawCustom === 'object' &&
+        (rawCustom.completed_by_admin === true ||
+          rawCustom.completedByAdmin === true ||
+          rawCustom.finalizada_por_admin === true))
+    ),
+    completed_by_admin: Boolean(
+      row.completed_by_admin === true ||
+      row.finalizada_por_admin === true ||
+      row.completedByAdmin === true ||
+      (rawCustom &&
+        typeof rawCustom === 'object' &&
+        (rawCustom.completed_by_admin === true ||
+          rawCustom.completedByAdmin === true ||
+          rawCustom.finalizada_por_admin === true))
+    ),
+    finalizada_por_admin: Boolean(
+      row.completed_by_admin === true ||
+      row.finalizada_por_admin === true ||
+      row.completedByAdmin === true ||
+      (rawCustom &&
+        typeof rawCustom === 'object' &&
+        (rawCustom.completed_by_admin === true ||
+          rawCustom.completedByAdmin === true ||
+          rawCustom.finalizada_por_admin === true))
+    ),
   };
 }
 
@@ -460,6 +512,30 @@ export function mapTaskToDbPayload(
     });
   }
 
+  // Rastreabilidade de Conclusão por Administrador (completed_by_admin / finalizada_por_admin)
+  const isCompletedByAdmin =
+    task.completedByAdmin !== undefined
+      ? Boolean(task.completedByAdmin)
+      : task.completed_by_admin !== undefined
+      ? Boolean(task.completed_by_admin)
+      : task.finalizada_por_admin !== undefined
+      ? Boolean(task.finalizada_por_admin)
+      : undefined;
+
+  if (isCompletedByAdmin !== undefined) {
+    if (!payload.campos_customizados) {
+      payload.campos_customizados = {};
+    }
+    payload.campos_customizados.completed_by_admin = isCompletedByAdmin;
+    payload.campos_customizados.completedByAdmin = isCompletedByAdmin;
+    payload.campos_customizados.finalizada_por_admin = isCompletedByAdmin;
+
+    // Se a coluna nativa existir na tabela tarefas do Supabase, envia no nível raiz
+    if (hasNativeCompletedByAdminColumn) {
+      payload.completed_by_admin = isCompletedByAdmin;
+    }
+  }
+
   if ('comments' in task && task.comments !== undefined) {
     payload.comentarios = task.comments ?? [];
   }
@@ -558,6 +634,7 @@ export const taskService = {
 
   /**
    * Atualiza o status da tarefa e campos customizados preenchidos.
+   * Suporta rastreabilidade de conclusão por Administrador (completed_by_admin).
    * Quando o usuário marcar uma tarefa como 'concluida' com o campo recorrencia preenchido
    * (diferente de 'Nenhuma' ou null), calcula a próxima data válida e executa
    * supabase.from('tarefas').insert({...}) criando uma nova tarefa com status 'pendente'.
@@ -565,7 +642,8 @@ export const taskService = {
   async updateTaskStatus(
     task: Task,
     newStatus: TaskStatus,
-    filledValues?: CustomFieldValue[]
+    filledValues?: CustomFieldValue[],
+    completedByAdmin?: boolean
   ): Promise<{
     updatedTask: Task;
     nextRecurrentTask: Task | null;
@@ -574,10 +652,22 @@ export const taskService = {
     const updatedValues =
       filledValues !== undefined ? filledValues : (task.customFieldValues ?? []);
 
+    // Se o status for concluída, define completed_by_admin (true para admin, false para membro comum)
+    // Se a tarefa estiver sendo reaberta (pendente ou em_andamento), reseta a flag para false
+    const isByAdmin =
+      newStatus === 'concluida'
+        ? completedByAdmin !== undefined
+          ? Boolean(completedByAdmin)
+          : Boolean(task.completedByAdmin ?? task.completed_by_admin ?? false)
+        : false;
+
     const updatedTask: Task = {
       ...task,
       status: newStatus,
       customFieldValues: updatedValues,
+      completedByAdmin: isByAdmin,
+      completed_by_admin: isByAdmin,
+      finalizada_por_admin: isByAdmin,
     };
 
     let nextRecurrentTask: Task | null = null;
@@ -652,7 +742,8 @@ export const taskService = {
     completed: boolean,
     values?: Record<string, string | number>,
     memberName?: string,
-    observacao?: string
+    observacao?: string,
+    isAdmin?: boolean
   ): Promise<{
     updatedTask: Task;
     nextRecurrentTask: Task | null;
@@ -745,11 +836,20 @@ export const taskService = {
       ? 'em_andamento'
       : 'pendente';
 
+    const isByAdmin = allCompleted
+      ? isAdmin !== undefined
+        ? Boolean(isAdmin)
+        : Boolean(task.completedByAdmin ?? task.completed_by_admin ?? false)
+      : false;
+
     const updatedTask: Task = {
       ...task,
       status: newStatus,
       userSubmissions: updatedSubmissions,
       customFieldValues: consolidatedValues,
+      completedByAdmin: isByAdmin,
+      completed_by_admin: isByAdmin,
+      finalizada_por_admin: isByAdmin,
     };
 
     let nextRecurrentTask: Task | null = null;
@@ -817,13 +917,14 @@ export const taskService = {
    */
   async completeTask(
     task: Task,
-    filledValues?: CustomFieldValue[]
+    filledValues?: CustomFieldValue[],
+    completedByAdmin?: boolean
   ): Promise<{
     updatedTask: Task;
     nextRecurrentTask: Task | null;
     error: any | null;
   }> {
-    return this.updateTaskStatus(task, 'concluida', filledValues);
+    return this.updateTaskStatus(task, 'concluida', filledValues, completedByAdmin);
   },
 
   /**
